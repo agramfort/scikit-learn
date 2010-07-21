@@ -11,7 +11,8 @@ import math
 
 #from scikits.optimization import *
 
-from .distances import kneigh as distances_kneigh
+from ...neighbors import Neighbors
+
 from .distances import numpy_floyd
 from .euclidian_mds import mds as euclidian_mds
 #from .cca_function import CostFunction as CCA_CostFunction
@@ -52,20 +53,23 @@ def reduct(reduction, function, samples, **kwargs):
         size = int(math.sqrt(dists.shape[0]))
         dists.shape = (size, size)
     else:
-        if 'neigh' in kwargs:
-            neighborer = kwargs['neigh'](samples, **kwargs)
+        neigh = kwargs.get('neigh', None)
+        if neigh is None:
+            neigh = Neighbors(k=kwargs.get('n_neighbors', 9))
+            neigh.fit(samples)
+            neigh = neigh.kneighbors
         else:
-            neighborer = distances_kneigh(samples, kwargs.get('n_neighbors', 9))
+            neigh = neigh(**kwargs)
+            neigh.fit(X)
 
-        dists = populateDistanceMatrixFromneighbors(samples, neighborer)
+        dists = populate_distance_matrix_from_neighbors(samples, neigh)
         numpy_floyd(dists)
         if 'temp_file' in kwargs:
             dists.tofile(kwargs['temp_file'])
-        del neighborer
 
     return reduction(dists, function, **kwargs)
 
-def populateDistanceMatrixFromneighbors(points, neighborer):
+def populate_distance_matrix_from_neighbors(points, neighborer):
     """
     Creates a matrix with infinite value safe for points that are neighbors
     """
@@ -73,8 +77,8 @@ def populateDistanceMatrixFromneighbors(points, neighborer):
         dtype = numpy.float)
     distances *= 1e30000
     for indice in xrange(0, len(points)):
-        neighborList = neighborer[indice]
-        for element in neighborList:
+        neighbor_list = neighborer(points[indice])[1]
+        for element in neighbor_list:
             distances[indice, element] = math.sqrt(
                 numpy.sum((points[indice] - points[element])**2))
             distances[element, indice] = math.sqrt(
