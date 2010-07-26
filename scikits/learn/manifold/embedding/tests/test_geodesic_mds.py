@@ -25,7 +25,6 @@ class TestPopulateMatrix(TestCase):
     neigh = neigh.kneighbors
     dists = populate_distance_matrix_from_neighbors(samples, neigh)
     assert_array_equal(dists, dists.T)
-    print dists
 
 if __name__ == "__main__":
   unittest.main()

@@ -41,11 +41,11 @@ def create_graph(samples, **kwargs):
     neigh = kwargs.get('neigh', None)
     if neigh is None:
         neigh = Neighbors(k=kwargs.get('n_neighbors', 9))
-        neigh.fit(samples, labels)
+        neigh.fit(samples)
         neigh = neigh.kneighbors
     else:
         neigh = neigh(**kwargs)
-        neigh.fit(X)
+        neigh.fit(samples)
 
     for i in range(0, len(samples)):
         graph[i] = [neighboor for neighboor in neigh(samples[i])]
