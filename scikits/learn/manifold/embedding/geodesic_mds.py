@@ -135,13 +135,13 @@ class Isomap(object):
       1., 1., 0.5,
       )).reshape((-1,3))
     >>> isomap = Isomap()
-    >>> isomap.transform(samples)
+    >>> isomap.fit(samples)
     >>> print isomap.embedding_
     """
     def __init__(self, **embedded_opts):
         self.__embedded_opts = embedded_opts
 
-    def transform(self, X):
+    def fit(self, X):
         """
         Parameters
         ----------

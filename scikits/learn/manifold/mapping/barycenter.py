@@ -8,7 +8,7 @@ import numpy as np
 
 from ...neighbors import Neighbors
 
-from ..compression.barycenters import barycenter
+from ..embedding.barycenters import barycenter
 
 class Barycenter(object):
     """
@@ -44,8 +44,9 @@ class Barycenter(object):
         self.__X = embedding.X_
         self.__Y = embedding.embedding_
         self.neigh.fit(self.__X)
+        return self
       
-    def predict(self, X):
+    def transform(self, X):
         """
         Parameters
         ----------
