@@ -84,13 +84,13 @@ def centered_normalized(samples):
     return centered
 
 def dist2hd(x,y):
-     """
-     Generate a 'coordinate' of the solution at a time
-     """
-     d = np.zeros((x.shape[0],y.shape[0]),dtype=x.dtype)
-     for i in xrange(x.shape[1]):
-         diff2 = x[:,i,None] - y[:,i]
-         diff2 **= 2
-         d += diff2
-     np.sqrt(d,d)
-     return d
+    """
+    Generates a distance matrix
+    """
+    d = np.zeros((x.shape[0],y.shape[0]),dtype=x.dtype)
+    for i in xrange(x.shape[1]):
+        diff2 = x[:,i,None] - y[:,i]
+        diff2 **= 2
+        d += diff2
+    np.sqrt(d,d)
+    return d
