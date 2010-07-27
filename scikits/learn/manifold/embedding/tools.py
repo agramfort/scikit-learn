@@ -10,7 +10,8 @@ import numpy as np
 
 from ...neighbors import Neighbors
 
-def create_neighborer(samples, neigh, n_neighbors, neigh_alternate_arguments):
+def create_neighborer(samples, neigh = None, n_neighbors = None,
+    neigh_alternate_arguments = None):
     """
     Computes the barycenters of samples given as parameters and returns them.
     

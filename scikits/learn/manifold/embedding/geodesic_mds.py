@@ -51,18 +51,16 @@ def reduct(reduction, function, samples, n_coords, neigh, n_neighbors,
       If provided, neigh must be a functor. All parameters passed to this
       function will be passed to its constructor.
     """
-    if temp_file and os.path.exists(temp_file):
-        dists = numpy.fromfile(temp_file)
-        size = int(math.sqrt(dists.shape[0]))
-        dists.shape = (size, size)
-    else:
+    try:
+        dists = numpy.load(temp_file)
+    except:
         neigh = create_neighborer(samples, neigh, n_neighbors, 
             neigh_alternate_arguments)
 
         dists = populate_distance_matrix_from_neighbors(samples, neigh)
         numpy_floyd(dists)
         if temp_file:
-            dists.tofile(temp_file)
+            numpy.save(temp_file, dists)
 
     return reduction(dists, function, n_coords)
 
