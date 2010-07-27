@@ -26,14 +26,14 @@
 
 
 
-===========================
-Scikits.learn Documentation
-===========================
+===========================================
+Scikits.learn: machine learning in Python
+===========================================
 
 .. topic:: Easy-to-use and general-purpose machine learning in Python
 
-    ``scikits.learn`` is a Python module integrating classique machine
-    learning algorithms in the tightly-nit world of scientific Python
+    ``scikits.learn`` is a Python module integrating classic machine
+    learning algorithms in the tightly-knit world of scientific Python
     packages (`numpy <http://www.scipy.org>`_, `scipy
     <http://www.scipy.org>`_, `matplotlib
     <http://matplotlib.sourceforge.net/>`_).
