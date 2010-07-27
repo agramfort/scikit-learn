@@ -26,7 +26,7 @@ from .euclidian_mds import mds as euclidian_mds
 #from .robust_dimensionality_reduction import optimize_cost_function 
 #    as robust_dimensionality_optimize_cost_function
 
-def reduct(reduction, function, samples, neigh, n_neighbors,
+def reduct(reduction, function, samples, n_coords, neigh, n_neighbors,
     neigh_alternate_arguments, temp_file):
     """
     Data reduction with geodesic distance approximation
@@ -56,15 +56,15 @@ def reduct(reduction, function, samples, neigh, n_neighbors,
         size = int(math.sqrt(dists.shape[0]))
         dists.shape = (size, size)
     else:
-        neigh = create_neighborer(neigh, n_neighbors, 
+        neigh = create_neighborer(samples, neigh, n_neighbors, 
             neigh_alternate_arguments)
 
         dists = populate_distance_matrix_from_neighbors(samples, neigh)
         numpy_floyd(dists)
-        if temp_file in kwargs:
+        if temp_file:
             dists.tofile(temp_file)
 
-    return reduction(dists, function, **kwargs)
+    return reduction(dists, function, n_coords)
 
 def populate_distance_matrix_from_neighbors(points, neighborer):
     """
@@ -74,7 +74,7 @@ def populate_distance_matrix_from_neighbors(points, neighborer):
         dtype = numpy.float)
     distances[:] = numpy.inf
     for indice in xrange(0, len(points)):
-        neighbor_list = neighborer(points[indice])[1]
+        neighbor_list = neighborer.predict(points[indice])[1]
         for element in neighbor_list:
             d = math.sqrt(
                 numpy.sum((points[indice] - points[element])**2))
@@ -89,8 +89,8 @@ class Isomap(object):
 
     Parameters
     ----------
-    temp_file : string
-      name of a file for caching the distance matrix
+    n_coords : int
+      The dimension of the embedding space
 
     n_neighbors : int
       The number of K-neighboors to use (optional, default 9) if neigh is not
@@ -103,6 +103,9 @@ class Isomap(object):
 
     neigh_alternate_arguments : dictionary
       Dictionary of arguments that will be passed to the `neigh` constructor
+
+    temp_file : string
+      name of a file for caching the distance matrix
 
     Attributes
     ----------
@@ -140,8 +143,9 @@ class Isomap(object):
     >>> isomap.fit(samples)
     >>> print isomap.embedding_
     """
-    def __init__(self, n_neighbors = None, neigh = None,
+    def __init__(self, n_coords, n_neighbors = None, neigh = None,
         neigh_alternate_arguments = None, temp_file=None):
+        self.n_coords = n_coords
         self.n_neighbors = n_neighbors
         self.neigh = neigh
         self.neigh_alternate_arguments = neigh_alternate_arguments
@@ -162,7 +166,7 @@ class Isomap(object):
             return None
         self.X_ = numpy.asanyarray(X)
         self.embedding_, self.reduced_parameters_ = reduct(euclidian_mds, 
-            function, self.X_, neigh = self.neigh,
+            function, self.X_, n_coords = self.n_coords, neigh = self.neigh,
             n_neighbors = self.n_neighbors,
             neigh_alternate_arguments = self.neigh_alternate_arguments,
             temp_file = self.temp_file)
