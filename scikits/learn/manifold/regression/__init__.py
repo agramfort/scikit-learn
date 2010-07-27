@@ -1,4 +1,0 @@
-
-"""
-Regression module
-"""
