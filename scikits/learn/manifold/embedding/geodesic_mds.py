@@ -43,10 +43,12 @@ def reduct(reduction, function, samples, **kwargs):
 
     neigh : Neighbors
       A neighboorer (optional). By default, a K-Neighbor research is done.
-      If provided, neigh must be a functor. All parameters passed to this function will be passed to its constructor.
+      If provided, neigh must be a functor. All parameters passed to this
+      function will be passed to its constructor.
 
     n_neighbors : int
-      The number of K-neighboors to use (optional, default 9) if neigh is not given.
+      The number of K-neighboors to use (optional, default 9) if neigh is not
+      given.
     """
     if 'temp_file' in kwargs and os.path.exists(kwargs['temp_file']):
         dists = numpy.fromfile(kwargs['temp_file'])
@@ -73,16 +75,16 @@ def populate_distance_matrix_from_neighbors(points, neighborer):
     """
     Creates a matrix with infinite value safe for points that are neighbors
     """
-    distances = numpy.ones((points.shape[0], points.shape[0]),
+    distances = numpy.zeros((points.shape[0], points.shape[0]),
         dtype = numpy.float)
-    distances *= 1e30000
+    distances[:] = numpy.inf
     for indice in xrange(0, len(points)):
         neighbor_list = neighborer(points[indice])[1]
         for element in neighbor_list:
-            distances[indice, element] = math.sqrt(
+            d = math.sqrt(
                 numpy.sum((points[indice] - points[element])**2))
-            distances[element, indice] = math.sqrt(
-                numpy.sum((points[indice] - points[element])**2))
+            distances[indice, element] = d
+            distances[element, indice] = d
 
     return distances
 
@@ -97,10 +99,12 @@ class Isomap(object):
 
     neigh : Neighbors
       A neighboorer (optional). By default, a K-Neighbor research is done.
-      If provided, neigh must be a functor. All parameters passed to this function will be passed to its constructor.
+      If provided, neigh must be a functor. All parameters passed to this
+      function will be passed to its constructor.
 
     n_neighbors : int
-      The number of K-neighboors to use (optional, default 9) if neigh is not given.
+      The number of K-neighboors to use (optional, default 9) if neigh is not
+      given.
 
     Attributes
     ----------

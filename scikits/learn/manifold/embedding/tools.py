@@ -3,7 +3,8 @@
 Tools for computation
 """
 
-__all__ = ['create_graph', 'create_sym_graph', 'centered_normalized', 'dist2hd']
+__all__ =
+    ['create_graph', 'create_sym_graph', 'centered_normalized', 'dist2hd']
 
 import numpy as np
 
@@ -11,7 +12,8 @@ from ...neighbors import Neighbors
 
 def create_graph(samples, **kwargs):
     """
-    Creates a list of list containing the nearest neighboors for each point in the dataset
+    Creates a list of list containing the nearest neighboors for each point in
+    the dataset
 
     Parameters
     ----------
@@ -20,10 +22,12 @@ def create_graph(samples, **kwargs):
 
     neigh : Neighbors
       A neighboorer (optional). By default, a K-Neighbor research is done.
-      If provided, neigh must be a functor. All parameters passed to this function will be passed to its constructor.
+      If provided, neigh must be a functor. All parameters passed to this
+      function will be passed to its constructor.
 
     n_neighbors : int
-      The number of K-neighboors to use (optional, default 9) if neigh is not given.
+      The number of K-neighboors to use (optional, default 9) if neigh is not
+      given.
 
     Examples
     --------
@@ -54,17 +58,20 @@ def create_graph(samples, **kwargs):
 
 def create_sym_graph(samples, **kwargs):
     """
-    Creates a list of list containing the nearest neighboors for each point in the dataset. The list of lists is symmetric
+    Creates a list of list containing the nearest neighboors for each point in
+    the dataset. The list of lists is symmetric
     Parameters :
       - samples is the points to consider
       - neigh is a neighboorer (optional)
-      - n_neighbors is the number of K-neighboors to use (optional, default 9) if neigh is not given
+      - n_neighbors is the number of K-neighboors to use (optional, default 9)
+      if neigh is not given
     """
     import toolbox.neighboors
     if 'neigh' in kwargs:
         neighboorer = kwargs['neigh'](samples, **kwargs)
     else:
-        neighboorer = toolbox.neighboors.distances.kneigh(samples, kwargs.get('n_neighbors', 9))
+        neighboorer = toolbox.neighboors.distances.kneigh(samples,
+          kwargs.get('n_neighbors', 9))
 
     graph = [set() for i in range(len(samples))]
 
