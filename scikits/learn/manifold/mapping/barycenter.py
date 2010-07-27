@@ -6,10 +6,12 @@ Use the barycenter in an original space to create a projection inside an embedde
 
 import numpy as np
 
+from ...base_estimator import BaseEstimator
+
 from ..embedding.barycenters import barycenter
 from ..embedding.tools import create_neighborer
 
-class Barycenter(object):
+class Barycenter(BaseEstimator):
     """
     Barycenter Mapping
     

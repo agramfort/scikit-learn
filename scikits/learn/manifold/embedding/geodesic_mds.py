@@ -11,10 +11,12 @@ import math
 
 #from scikits.optimization import *
 
-from .tools import create_neighborer
+from ...base_estimator import BaseEstimator
 
+from .tools import create_neighborer
 from .distances import numpy_floyd
 from .euclidian_mds import mds as euclidian_mds
+
 #from .cca_function import CostFunction as CCA_CostFunction
 #from .cost_function import CostFunction as RobustCostFunction
 #from .NLM import NLM_CostFunction
@@ -81,7 +83,7 @@ def populate_distance_matrix_from_neighbors(points, neighborer):
 
     return distances
 
-class Isomap(object):
+class Isomap(BaseEstimator):
     """
     Isomap embedding object
 
