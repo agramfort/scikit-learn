@@ -29,6 +29,9 @@ class Barycenter(BaseEstimator):
     neigh_alternate_arguments : dictionary
       Dictionary of arguments that will be passed to the `neigh` constructor
 
+    tol : float
+      Tolerance for the Gram matrix construction for computing the barycenter
+      weights
     Attributes
     ----------
     embedding_ : array_like
@@ -39,10 +42,11 @@ class Barycenter(BaseEstimator):
 
     """
     def __init__(self, n_neighbors = None, neigh = None,
-        neigh_alternate_arguments = None):
+        neigh_alternate_arguments = None, tol = 1e-3):
         self.n_neighbors = n_neighbors
         self.neigh = neigh
         self.neigh_alternate_arguments = neigh_alternate_arguments
+        self.tol = tol
 
     def fit(self, embedding):
         """
@@ -72,5 +76,6 @@ class Barycenter(BaseEstimator):
         Coordinates in the embedded space
         """
         X = np.atleast_2d(np.asanyarray(X))
-        dist, X_neighbors = self.neigh.kneighbors(X)
-        return np.asanyarray([np.dot(barycenter(x, self.__X[neighbors], **self.kwargs), self.__Y[neighbors]) for x, neighbors in zip(X, X_neighbors)])
+        dist, X_neighbors = self.neigh.predict(X)
+        return np.asanyarray([np.dot(barycenter(x, self.__X[neighbors], self.tol),
+            self.__Y[neighbors]) for x, neighbors in zip(X, X_neighbors)])
