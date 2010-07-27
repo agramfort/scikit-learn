@@ -3,9 +3,6 @@
 Projection with MAP on a piecewise linear function module with a grid
 """
 
-# Matthieu Brucher
-# Last Change : 2008-03-13 16:08
-
 from grid_ML_projection import *
 
 __all__ = ['GridMAPProjection']

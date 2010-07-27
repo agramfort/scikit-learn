@@ -2,4 +2,4 @@
 Robust compression module
 """
 
-from .costfunction import cost_function
+#from .costfunction import cost_function

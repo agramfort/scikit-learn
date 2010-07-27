@@ -3,9 +3,6 @@
 Projection with ML on a piecewise linear function module with a grid
 """
 
-# Matthieu Brucher
-# Last Change : 2008-06-11 09:24
-
 import numpy
 
 import scipy.optimize

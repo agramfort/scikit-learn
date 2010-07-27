@@ -3,14 +3,45 @@
 Tools for computation
 """
 
-__all__ =
+__all__ = \
     ['create_graph', 'create_sym_graph', 'centered_normalized', 'dist2hd']
 
 import numpy as np
 
 from ...neighbors import Neighbors
 
-def create_graph(samples, **kwargs):
+def create_neighborer(samples, neigh, n_neighbors, neigh_alternate_arguments):
+    """
+    Computes the barycenters of samples given as parameters and returns them.
+    
+    Parameters
+    ----------
+    n_neighbors : int
+      The number of K-neighboors to use (optional, default 9) if neigh is not
+      given.
+
+    neigh : Neighbors
+      A neighboorer (optional). By default, a K-Neighbor research is done.
+      If provided, neigh must be a functor class . `neigh_alternate_arguments` 
+      will be passed to this class constructor.
+
+    neigh_alternate_arguments : dictionary
+      Dictionary of arguments that will be passed to the `neigh` constructor
+
+    Returns
+    -------
+    A neighbor instance
+    """
+    if neigh is None:
+        neigh = Neighbors(k = n_neighbors if n_neighbors is not None else 9)
+        neigh.fit(samples)
+        neigh.predict = neigh.kneighbors
+    else:
+        neigh = neigh(**neigh_alternate_arguments)
+        neigh.fit(samples)
+    return neigh
+
+def create_graph(samples, neigh, n_neighbors, neigh_alternate_arguments):
     """
     Creates a list of list containing the nearest neighboors for each point in
     the dataset
@@ -42,17 +73,12 @@ def create_graph(samples, **kwargs):
     n = len(samples)
     labels, graph = np.zeros(n), [None]*n
 
-    neigh = kwargs.get('neigh', None)
-    if neigh is None:
-        neigh = Neighbors(k=kwargs.get('n_neighbors', 9))
-        neigh.fit(samples)
-        neigh = neigh.kneighbors
-    else:
-        neigh = neigh(**kwargs)
-        neigh.fit(samples)
+    neigh = create_neighborer(samples, neigh = neigh,
+        n_neighbors = n_neighbors,
+        neigh_alternate_arguments = neigh_alternate_arguments)
 
     for i in range(0, len(samples)):
-        graph[i] = [neighboor for neighboor in neigh(samples[i])]
+        graph[i] = [neighboor for neighboor in neigh.predict(samples[i])]
 
     return graph
 

@@ -11,7 +11,7 @@ import math
 
 #from scikits.optimization import *
 
-from ...neighbors import Neighbors
+from .tools import create_neighborer
 
 from .distances import numpy_floyd
 from .euclidian_mds import mds as euclidian_mds
@@ -26,7 +26,8 @@ from .euclidian_mds import mds as euclidian_mds
 #from .robust_dimensionality_reduction import optimize_cost_function 
 #    as robust_dimensionality_optimize_cost_function
 
-def reduct(reduction, function, samples, **kwargs):
+def reduct(reduction, function, samples, neigh, n_neighbors,
+    neigh_alternate_arguments, temp_file):
     """
     Data reduction with geodesic distance approximation
 
@@ -41,33 +42,27 @@ def reduct(reduction, function, samples, **kwargs):
     temp_file : string
       name of a file for caching the distance matrix
 
+    n_neighbors : int
+      The number of K-neighboors to use (optional, default 9) if neigh is not
+      given.
+
     neigh : Neighbors
       A neighboorer (optional). By default, a K-Neighbor research is done.
       If provided, neigh must be a functor. All parameters passed to this
       function will be passed to its constructor.
-
-    n_neighbors : int
-      The number of K-neighboors to use (optional, default 9) if neigh is not
-      given.
     """
-    if 'temp_file' in kwargs and os.path.exists(kwargs['temp_file']):
-        dists = numpy.fromfile(kwargs['temp_file'])
+    if temp_file and os.path.exists(temp_file):
+        dists = numpy.fromfile(temp_file)
         size = int(math.sqrt(dists.shape[0]))
         dists.shape = (size, size)
     else:
-        neigh = kwargs.get('neigh', None)
-        if neigh is None:
-            neigh = Neighbors(k=kwargs.get('n_neighbors', 9))
-            neigh.fit(samples)
-            neigh = neigh.kneighbors
-        else:
-            neigh = neigh(**kwargs)
-            neigh.fit(X)
+        neigh = create_neighborer(neigh, n_neighbors, 
+            neigh_alternate_arguments)
 
         dists = populate_distance_matrix_from_neighbors(samples, neigh)
         numpy_floyd(dists)
-        if 'temp_file' in kwargs:
-            dists.tofile(kwargs['temp_file'])
+        if temp_file in kwargs:
+            dists.tofile(temp_file)
 
     return reduction(dists, function, **kwargs)
 
@@ -97,14 +92,17 @@ class Isomap(object):
     temp_file : string
       name of a file for caching the distance matrix
 
-    neigh : Neighbors
-      A neighboorer (optional). By default, a K-Neighbor research is done.
-      If provided, neigh must be a functor. All parameters passed to this
-      function will be passed to its constructor.
-
     n_neighbors : int
       The number of K-neighboors to use (optional, default 9) if neigh is not
       given.
+
+    neigh : Neighbors
+      A neighboorer (optional). By default, a K-Neighbor research is done.
+      If provided, neigh must be a functor class . `neigh_alternate_arguments` 
+      will be passed to this class constructor.
+
+    neigh_alternate_arguments : dictionary
+      Dictionary of arguments that will be passed to the `neigh` constructor
 
     Attributes
     ----------
@@ -142,8 +140,12 @@ class Isomap(object):
     >>> isomap.fit(samples)
     >>> print isomap.embedding_
     """
-    def __init__(self, **embedded_opts):
-        self.__embedded_opts = embedded_opts
+    def __init__(self, n_neighbors = None, neigh = None,
+        neigh_alternate_arguments = None, temp_file=None):
+        self.n_neighbors = n_neighbors
+        self.neigh = neigh
+        self.neigh_alternate_arguments = neigh_alternate_arguments
+        self.temp_file= temp_file
 
     def fit(self, X):
         """
@@ -158,9 +160,12 @@ class Isomap(object):
         """
         def function(*args, **kwargs):
             return None
-        self.X_ = X
+        self.X_ = numpy.asanyarray(X)
         self.embedding_, self.reduced_parameters_ = reduct(euclidian_mds, 
-            function, X, **self.__embedded_opts)
+            function, self.X_, neigh = self.neigh,
+            n_neighbors = self.n_neighbors,
+            neigh_alternate_arguments = self.neigh_alternate_arguments,
+            temp_file = self.temp_file)
         return self
 
 def ccaCompression(samples, nb_coords, **kwargs):

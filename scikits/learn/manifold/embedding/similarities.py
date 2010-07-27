@@ -15,16 +15,18 @@ import scipy.sparse.linalg.dsolve
 import math
 from .tools import create_graph
 
-def LLE(samples, nb_coords, **kwargs):
+def LLE(samples, nb_coords, n_neighbors, neigh = None,
+    neigh_alternate_arguments = None):
     """
     Computes the LLE reduction for a manifold
     Parameters :
       - samples are the samples that will be reduced
       - nb_coords is the number of coordinates in the manifold
       - neigh is the neighborer used (optional, default Kneighbor)
-      - neighbor is the number of neighbors (optional, default 9)
+      - n_neighbor is the number of neighbors (optional, default 9)
     """
-    W = barycenters(samples, **kwargs)
+    W = barycenters(samples, neigh = neigh, n_neighbors = n_neighbors,
+            neigh_alternate_arguments = neigh_alternate_arguments)
     t = numpy.eye(len(samples), len(samples)) - W
     M = numpy.asarray(numpy.dot(t.T, t))
 
@@ -33,13 +35,6 @@ def LLE(samples, nb_coords, **kwargs):
 
     t = scipy.sparse.eye(len(samples), len(samples)) - W
     M = t.T * t
-
-    #sigma_solve = scipy.sparse.linalg.dsolve.splu(M).solve
-    #w, vectors = scipy.sparse.linalg.eigen_symmetric(M, k=nb_coords+1, which='LR')
-    #w, vectors = scipy.sparse.linalg.speigs.ARPACK_gen_eigs(M.matvec, sigma_solve, n=M.shape[0], sigma = 0, nev=nb_coords+1, which='SM')
-    #vectors = numpy.asarray(vectors)
-    #print w
-    #index = numpy.argsort(w)[1:1+nb_coords]
 
     return numpy.sqrt(len(samples)) * vectors[:,index]
 

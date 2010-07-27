@@ -3,7 +3,7 @@
 Projection with ML on a piecewise linear function module
 """
 
-from scikits.optimization import *
+#from scikits.optimization import *
 
 import numpy
 import numpy.linalg as linalg
