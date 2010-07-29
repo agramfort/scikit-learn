@@ -12,6 +12,7 @@ import math
 #from scikits.optimization import *
 
 from ...base_estimator import BaseEstimator
+from ..mapping import builder as mapping_builder
 
 from .tools import create_neighborer
 from .distances import numpy_floyd
@@ -104,6 +105,15 @@ class Isomap(BaseEstimator):
     neigh_alternate_arguments : dictionary
       Dictionary of arguments that will be passed to the `neigh` constructor
 
+    mapping_kind : object
+      The type of mapper to use. Can be:
+          * None : no mapping built
+          * "Barycenter" (default) : Barycenter mapping
+          * a class object : a class that will be instantiated with the
+              arguments of this function
+          * an instance : an instance that will be fit() and then
+              transform()ed
+      
     temp_file : string
       name of a file for caching the distance matrix
 
@@ -139,16 +149,17 @@ class Isomap(BaseEstimator):
       .5, 0., 0.,
       1., 1., 0.5,
       )).reshape((-1,3))
-    >>> isomap = Isomap()
+    >>> isomap = Isomap(kind = None)
     >>> isomap.fit(samples)
     >>> print isomap.embedding_
     """
     def __init__(self, n_coords, n_neighbors = None, neigh = None,
-        neigh_alternate_arguments = None, temp_file=None):
+        neigh_alternate_arguments = None, mapping_kind = "Barycenter", temp_file=None):
         self.n_coords = n_coords
         self.n_neighbors = n_neighbors
         self.neigh = neigh
         self.neigh_alternate_arguments = neigh_alternate_arguments
+        self.mapping_kind = mapping_kind
         self.temp_file= temp_file
 
     def fit(self, X):
@@ -170,8 +181,15 @@ class Isomap(BaseEstimator):
             n_neighbors = self.n_neighbors,
             neigh_alternate_arguments = self.neigh_alternate_arguments,
             temp_file = self.temp_file)
+        self.mapping = mapping_builder(self, self.mapping_kind,
+            neigh = self.neigh, n_neighbors = self.n_neighbors - 1,
+            neigh_alternate_arguments = self.neigh_alternate_arguments)
         return self
 
+    def transform(self, X):
+        if self.mapping:
+            return self.mapping.transform(X)
+        
 def ccaCompression(samples, nb_coords, **kwargs):
     """
     CCA compression :

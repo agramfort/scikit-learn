@@ -16,7 +16,7 @@ def builder(embedding, kind = "Barycenter", n_neighbors = None, neigh = None,
         A usable embedding instance
     
     kind : object
-        the type of mapper to use. Can be:
+        The type of mapper to use. Can be:
             * None : no mapping built
             * "Barycenter" (default) : Barycenter mapping
             * a class object : a class that will be instantiated with the
