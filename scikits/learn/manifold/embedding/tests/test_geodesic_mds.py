@@ -8,9 +8,11 @@ from numpy.testing import assert_array_equal, \
 
 from unittest import TestCase
 from tempfile import NamedTemporaryFile
+from nose.tools import raises
 
-from ..tools import create_neighborer
-from ..geodesic_mds import reduct, populate_distance_matrix_from_neighbors
+from ..tools import create_neighborer, dist2hd
+from ..geodesic_mds import reduct, populate_distance_matrix_from_neighbors, \
+    Isomap
 
 samples = numpy.array((0., 0., 0.,
   1., 0., 0.,
@@ -59,6 +61,27 @@ class TestReduct(TestCase):
         dists = numpy.load(temp.file)
         assert_array_almost_equal(distances, dists)
 
+class TestIsomap(TestCase):
+    def test_fit(self):
+        isomap = Isomap(n_coords = 2, mapping_kind = None, n_neighbors = 3)
+        assert(isomap.fit(samples[:3]) == isomap)
+        assert(hasattr(isomap, 'embedding_'))
+        assert(isomap.embedding_.shape == (3, 2))
+        assert_array_almost_equal(dist2hd(isomap.embedding_[:3], 
+            isomap.embedding_[:3])**2, distances[:3, :3])
+
+    @raises(RuntimeError)
+    def test_transform_raises(self):
+        isomap = Isomap(n_coords = 2, mapping_kind = None, n_neighbors = 3)
+        isomap.fit(samples[:3])
+        isomap.transform(samples[0])
+
+    def test_transform(self):
+        isomap = Isomap(n_coords = 2, n_neighbors = 3)
+        isomap.fit(samples[:3])
+        mapped = isomap.transform(samples)
+        assert_array_almost_equal(mapped[:3], isomap.embedding_, decimal=3)
+        
 if __name__ == "__main__":
   unittest.main()
   

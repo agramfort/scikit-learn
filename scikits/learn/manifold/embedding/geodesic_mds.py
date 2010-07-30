@@ -173,11 +173,9 @@ class Isomap(BaseEstimator):
         -------
         Self
         """
-        def function(*args, **kwargs):
-            return None
         self.X_ = numpy.asanyarray(X)
         self.embedding_, self.reduced_parameters_ = reduct(euclidian_mds, 
-            function, self.X_, n_coords = self.n_coords, neigh = self.neigh,
+            None, self.X_, n_coords = self.n_coords, neigh = self.neigh,
             n_neighbors = self.n_neighbors,
             neigh_alternate_arguments = self.neigh_alternate_arguments,
             temp_file = self.temp_file)
@@ -189,6 +187,8 @@ class Isomap(BaseEstimator):
     def transform(self, X):
         if self.mapping:
             return self.mapping.transform(X)
+        else:
+            raise RuntimeError("No mapping was built for this embedding")
         
 def ccaCompression(samples, nb_coords, **kwargs):
     """
