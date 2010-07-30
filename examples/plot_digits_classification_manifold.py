@@ -36,7 +36,7 @@ data = digits.images.reshape((n_samples, -1))
 
 from scikits.learn.manifold import Isomap, Barycenter
 
-isomap = Isomap(nb_coords = 5, n_neighbors = 10)
+isomap = Isomap(n_coords = 5, n_neighbors = 10)
 isomap.fit(data[:n_samples/2])
 
 colors = np.array([(1,0,0), (0,1,0), (0,0,1), (1,1,0), (1,0,1), (0,1,1),
@@ -50,9 +50,7 @@ ax2.scatter(isomap.embedding_[:,0], isomap.embedding_[:,1],
     isomap.embedding_[:,2], c=colors[digits.target[:n_samples/2]])
 fig2.suptitle('Training samples in embedded space')
 
-mapper = Barycenter(n_neighbors = 9, tol = 1e-9)
-mapper.fit(isomap)
-reduced_test_data = mapper.transform(data[n_samples/2:])
+reduced_test_data = isomap.transform(data[n_samples/2:])
 
 fig3 = pl.figure()
 ax3 = Axes3D(fig3)
