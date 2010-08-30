@@ -32,7 +32,7 @@ Y = np.random.randn(n)
 
 print "Computing regularization path using the LARS ..."
 start = datetime.now()
-clf = glm.LeastAngleRegression().fit (X, Y, max_features=26, normalize=False)
+clf = lars.LassoLARS().fit (X, Y, max_features=28, normalize=True)
 print "This took ", datetime.now() - start
 
 alphas = -np.log10(clf.alphas_)
