@@ -4,6 +4,7 @@ LDA: Linear Discriminant Analysis
 # Author: Matthieu Perrot
 
 import warnings
+from math import sqrt
 
 import numpy as np
 from scipy import linalg, ndimage
@@ -86,8 +87,14 @@ class LDA(BaseEstimator, ClassifierMixin):
         y = np.asanyarray(y)
         if X.ndim != 2:
             raise ValueError('X must be a 2D array')
-        n_samples = X.shape[0]
-        n_features = X.shape[1]
+
+        # Remove uninformative features (constant over samples)
+        X_std = X.std(axis=0)
+        self.informative_features_ = X_std > 10*np.finfo(float).eps
+        if np.sum(self.informative_features_) < X.shape[1]:
+            X = X[:,self.informative_features_]
+
+        n_samples, n_features = X.shape
         # We need int32 to be able to use ndimage.measurements
         classes = np.unique(y).astype(np.int32)
         n_classes = classes.size
@@ -121,17 +128,17 @@ class LDA(BaseEstimator, ClassifierMixin):
             self.covariance_ = cov
 
         means = np.asarray(means)
-        Xc = np.concatenate(Xc, 0)
+        Xc = np.concatenate(Xc, axis=0)
 
         # ----------------------------
         # 1) within (univariate) scaling by with classes std-dev
         scaling = 1. / Xc.std(0)
-        fac = float(1) / (n_samples - n_classes)
+        fac = 1. / (n_samples - n_classes)
         # ----------------------------
         # 2) Within variance scaling
-        X = np.sqrt(fac) * (Xc * scaling)
+        X = sqrt(fac) * (Xc * scaling)
         # SVD of centered (within)scaled data
-        U, S, V = linalg.svd(X, full_matrices=0)
+        U, S, V = linalg.svd(X, full_matrices=False)
 
         rank = np.sum(S > tol)
         if rank < n_features:
@@ -173,6 +180,10 @@ class LDA(BaseEstimator, ClassifierMixin):
         C : array, shape = [n_samples, n_classes]
         """
         X = np.asanyarray(X)
+
+        if np.sum(self.informative_features_) < X.shape[1]:
+            X = X[:,self.informative_features_]
+
         scaling = self.scaling
         # Remove overall mean (center) and scale
         # a) data
