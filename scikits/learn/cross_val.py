@@ -491,6 +491,97 @@ def cross_val_score(estimator, X, y=None, score_func=None, cv=None, iid=False,
                 for train, test in cv)
     return np.array(scores)
 
+###############################################################################
+# Permutation based methods
+
+def permute_target(X, y, rng=0, labels=None):
+    """Return a shuffled copy of y eventually shuffle among same labels.
+
+    Parameters
+    ----------
+    X: ndarray, (n_samples, n_features)
+        Data
+    y: ndarray, (n_samples)
+        Target
+    rng: RandomState or an int seed (0 by default)
+        A random number generator instance to define the state of the
+        random permutations generator.
+    labels: array-like of shape [n_samples] (optional)
+        Labels constrain the permutation among groups of samples with
+        a same label.
+
+    Returns
+    -------
+    X: array, (n_samples, n_features)
+        The same as the input (no copy). X is just here for API consistency
+    y_rand: array, (n_samples)
+        The randomized targets
+
+    Notes
+    -----
+    In corresponds to Test 1 in :
+    Ojala and Garriga. Permutation Tests for Studying Classifier Performance.
+    The Journal of Machine Learning Research (2010) vol. 11
+    """
+    if rng is None:
+        rng = np.random.RandomState()
+    elif isinstance(rng, int):
+        rng = np.random.RandomState(rng)
+
+    if labels is None:
+        ind = rng.permutation(y.size)
+    else:
+        ind = np.arange(labels.size)
+        for label in np.unique(labels):
+            this_mask = (labels == label)
+            ind[this_mask] = rng.permutation(ind[this_mask])
+    return X, y[ind]
+
+
+def permute_features_within_class(X, y, rng=0):
+    """Shuffles the features within each class.
+
+    Let X_c be the features for class c. It shuffles
+    every columns independently.
+
+    Parameters
+    ----------
+    X: ndarray, (n_samples, n_features)
+        Data
+    y: ndarray, (n_samples)
+        Target
+    rng: RandomState or an int seed (0 by default)
+        A random number generator instance to define the state of the
+        random permutations generator.
+
+    Returns
+    -------
+    X_rand: array, (n_samples, n_features)
+        A randomized version of X
+    y: array, (n_samples)
+        The same as y input (no copy). y is just here for API consistency.
+
+    Notes
+    -----
+    In corresponds to Test 2 in :
+    Ojala and Garriga. Permutation Tests for Studying Classifier Performance.
+    The Journal of Machine Learning Research (2010) vol. 11
+    """
+    if rng is None:
+        rng = np.random.RandomState()
+    elif isinstance(rng, int):
+        rng = np.random.RandomState(rng)
+
+    n_features = X.shape[1]
+    classes = np.unique(y)
+    X_rand = X.copy()
+    for c in classes:
+        ind_c = np.where(y == c)[0]
+        for f in range(n_features):
+            perm = rng.permutation(ind_c)
+            X_rand[ind_c, f] = X[perm, f]
+    return X_rand, y
+
 
 def _permutation_test_score(estimator, X, y, cv, score_func):
     """Auxilary function for permutation_test_score
@@ -503,22 +594,9 @@ def _permutation_test_score(estimator, X, y, cv, score_func):
     return score_func(np.ravel(y_test), np.ravel(y_pred))
 
 
-def _shuffle(y, labels, rng):
-    """Return a shuffled copy of y eventually shuffle among same labels.
-    """
-    if labels is None:
-        ind = rng.permutation(y.size)
-    else:
-        ind = np.arange(labels.size)
-        for label in np.unique(labels):
-            this_mask = (labels == label)
-            ind[this_mask] = rng.permutation(ind[this_mask])
-    return y[ind]
-
-
 def permutation_test_score(estimator, X, y, score_func, cv=None,
-                      n_permutations=100, n_jobs=1, labels=None,
-                      rng=0, verbose=0):
+                      n_permutations=100, permute_func=None, n_jobs=1,
+                      labels=None, rng=0, verbose=0):
     """Evaluate the significance of a cross-validated score with permutations
 
     Parameters
@@ -540,9 +618,10 @@ def permutation_test_score(estimator, X, y, score_func, cv=None,
     n_jobs: integer, optional
         The number of CPUs to use to do the computation. -1 means
         'all CPUs'.
-    labels: array-like of shape [n_samples] (optional)
-        Labels constrain the permutation among groups of samples with
-        a same label.
+    permute_func: callable, optional
+        Function that takes X, y and a random generator.
+        It returns a randomized version of both X and y.
+        If None, permute_func is set to permute_target.
     rng: RandomState or an int seed (0 by default)
         A random number generator instance to define the state of the
         random permutations generator.
@@ -576,13 +655,16 @@ def permutation_test_score(estimator, X, y, score_func, cv=None,
     elif isinstance(rng, int):
         rng = np.random.RandomState(rng)
 
+    if permute_func is None:
+        permute_func = permute_target
+
     # We clone the estimator to make sure that all the folds are
     # independent, and that it is pickle-able.
     score = _permutation_test_score(clone(estimator), X, y, cv, score_func)
     permutation_scores = Parallel(n_jobs=n_jobs, verbose=verbose)(
-                delayed(_permutation_test_score)(clone(estimator), X,
-                                            _shuffle(y, labels, rng),
-                                            cv, score_func)
+                delayed(_permutation_test_score)(clone(estimator),
+                                            *permute_func(X, y, rng),
+                                            cv=cv, score_func=score_func)
                 for _ in range(n_permutations))
     permutation_scores = np.array(permutation_scores)
     pvalue = (np.sum(permutation_scores >= score) + 1.0) / (n_permutations + 1)
