@@ -497,6 +497,11 @@ def cross_val_score(estimator, X, y=None, score_func=None, cv=None, iid=False,
 def permute_target(X, y, rng=0, labels=None):
     """Return a shuffled copy of y eventually shuffle among same labels.
 
+    The null hypothese (H0) is "The data and the target to predict
+    are independant". If the p-value is small enough (< 0.05 for example)
+    then HO is rejected, i.e. we can say that there is a significant
+    depedency between the data and the target.
+
     Parameters
     ----------
     X: ndarray, (n_samples, n_features)
@@ -543,6 +548,11 @@ def permute_features_within_class(X, y, rng=0):
 
     Let X_c be the features for class c. It shuffles
     every columns independently.
+
+    The null hypothese (H0) is "The features are mutually independent
+    given the class label". If the p-value is small enough (< 0.05 for example)
+    then HO is rejected, i.e. we can say that the classifer used
+    captured significant intra-class feature correlations.
 
     Parameters
     ----------
