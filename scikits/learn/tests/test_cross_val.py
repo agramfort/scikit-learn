@@ -68,9 +68,13 @@ def test_permutation_score():
     assert_true(score > 0.9)
     np.testing.assert_almost_equal(pvalue, 0.0, 1)
 
+    def permute_func(X, y, rng=0):
+        return cross_val.permute_target(X, y, rng, labels=np.ones(y.size))
+
     score_label, _, pvalue_label = permutation_test_score(svm, X, y,
                                                     zero_one_score,
-                                                    cv, labels=np.ones(y.size),
+                                                    cv,
+                                                    permute_func=permute_func,
                                                     rng=0)
     assert_true(score_label == score)
     assert_true(pvalue_label == pvalue)
