@@ -12,7 +12,9 @@ better
 #          Olivier Grisel <olivier.grisel@ensta.org>
 # License: BSD Style.
 
+from math import sqrt
 import numpy as np
+from .pairwise import euclidean_distances
 
 
 def unique_labels(*list_of_labels):
@@ -677,4 +679,34 @@ def calinski_score(X, labels):
     ssb = centers.sum()
 
     score = (ssb / float(n_labels - 1)) / (ssw / float(n_samples - n_labels))
+    return score
+
+
+def davies_bouldin_score(X, labels):
+    """Davies-Bouldin clustering index
+
+    The index is minimum for the optimal number of clusters
+
+    Notes
+    -----
+    Davies, D. L.; Bouldin, D. W. A cluster separation measure.
+    IEEE Trans. Pattern Anal. Mach. Intelligence 1979, 1, 224-227.
+    """
+    n_samples, n_features = X.shape
+    u_labels = np.unique(labels)
+    n_labels = len(u_labels)
+    centers = np.empty((n_labels, n_features))
+    S = np.empty(n_labels)
+    for k, l in enumerate(u_labels):
+        Xl = X[labels == l]
+        centers[k] = np.mean(Xl, axis=0)
+        Xl -= centers[k]
+        np.power(Xl, 2, Xl)
+        S[k] = sqrt(Xl.sum() / len(Xl))
+
+    M = euclidean_distances(centers, centers, squared=False)
+    M.flat[::len(M) + 1] = 1.0  # avoid division by zero
+    R = (S[:, np.newaxis] + S[np.newaxis, :]) / M
+    R.flat[::len(R) + 1] = 0.0
+    score = np.mean(R[:, np.argmax(R, axis=1)])
     return score
