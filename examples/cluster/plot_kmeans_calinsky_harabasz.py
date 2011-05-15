@@ -11,20 +11,12 @@ from math import log
 import numpy as np
 from scikits.learn.cluster import KMeans
 from scikits.learn.metrics import calinski_score
+from scikits.learn.datasets.samples_generator import make_blobs
 
 ###############################################################################
 # Generate sample data
-np.random.seed(0)
-
-n_points_per_cluster = 500
-n_clusters = 3
-n_points = n_points_per_cluster * n_clusters
 means = np.array([[0, 0], [-1, -1], [1, -1]])
-std = .2
-
-X = np.empty((0, 2))
-for i in range(n_clusters):
-    X = np.r_[X, means[i] + std * np.random.randn(n_points_per_cluster, 2)]
+X, _ = make_blobs(n_samples=1500, centers=means, cluster_std=0.2)
 
 ###############################################################################
 # Compute Calinski-Harabasz scores for different number of clusters
