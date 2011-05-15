@@ -641,7 +641,7 @@ def mean_square_error(y_true, y_pred):
 ###############################################################################
 # Clustering / Unsupervised metrics
 
-def calinsky_score(X, labels):
+def calinski_score(X, labels):
     """Calinski-Harabasz criterion
 
     Computes the Calinski-Harabasz criterion defined as:
