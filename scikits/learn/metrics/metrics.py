@@ -636,3 +636,45 @@ def mean_square_error(y_true, y_pred):
     loss : float
     """
     return np.linalg.norm(y_pred - y_true) ** 2
+
+
+###############################################################################
+# Clustering / Unsupervised metrics
+
+def calinsky_score(X, labels):
+    """Calinski-Harabasz criterion
+
+    Computes the Calinski-Harabasz criterion defined as:
+
+        (SSB/(K-1))
+        -----------
+        (SSW/(n-K))
+
+    where n is the number of data points and K is the number of clusters.
+    SSW is the sum of squares within the clusters while SSB is the sum of
+    squares among the clusters. This index is simply an F (ANOVA) statistic.
+
+    Notes
+    -----
+    Calinski, T. and J. Harabasz. 1974. A dendrite method for cluster analysis.
+    Commun. Stat. 3: 1-27.
+    http://dx.doi.org/10.1080/03610927408827101
+    """
+    n_samples, n_features = X.shape
+    u_labels = np.unique(labels)
+    n_labels = len(u_labels)
+    ssw = 0.0
+    centers = np.empty((n_labels, n_features))
+    for k, l in enumerate(u_labels):
+        Xl = X[labels == l]
+        centers[k] = np.mean(Xl, axis=0)
+        Xl -= centers[k]
+        np.power(Xl, 2, Xl)
+        ssw += Xl.sum()
+
+    centers -= np.mean(X, axis=0)
+    np.power(centers, 2, centers)
+    ssb = centers.sum()
+
+    score = (ssb / float(n_labels - 1)) / (ssw / float(n_samples - n_labels))
+    return score
