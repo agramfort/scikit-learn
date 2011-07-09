@@ -57,11 +57,12 @@ def test_lars_lstsq():
     Test that LARS gives least square solution at the end
     of the path
     """
-    # test that it arrives to a least squares solution
-    alphas_, active, coef_path_ = linear_model.lars_path(diabetes.data, diabetes.target,
-                                                                method="lar")
-    coef_lstsq = np.linalg.lstsq(X, y)[0]
-    assert_array_almost_equal(coef_path_.T[-1], coef_lstsq)
+
+    X1 = 3 * diabetes.data # use un-normalized dataset
+    clf = linear_model.LassoLARS(alpha=0.)
+    clf.fit(X1, y)
+    coef_lstsq = np.linalg.lstsq(X1, y)[0]
+    assert_array_almost_equal(clf.coef_, coef_lstsq)
 
 
 def test_lasso_gives_lstsq_solution():
@@ -103,6 +104,8 @@ def test_lasso_lars_vs_lasso_cd(verbose=False):
     Test that LassoLars and Lasso using coordinate descent give the
     same results
     """
+    X = 3 * diabetes.data
+    
     alphas, _, lasso_path = linear_model.lars_path(X, y, method='lasso')
     lasso_cd = linear_model.Lasso(fit_intercept=False)
     for (c, a) in zip(lasso_path.T, alphas):
