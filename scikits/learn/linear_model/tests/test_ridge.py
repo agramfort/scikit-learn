@@ -36,6 +36,7 @@ np.random.seed(0)
 DENSE_FILTER = lambda X: X
 SPARSE_FILTER = lambda X: sp.csr_matrix(X)
 
+
 def test_ridge():
     """Ridge regression convergence test using score
 
@@ -67,6 +68,7 @@ def test_ridge():
     ridge.fit(X, y, sample_weight=np.ones(n_samples))
     assert ridge.score(X, y) > 0.9
 
+
 def test_toy_ridge_object():
     """Test BayesianRegression ridge classifier
 
@@ -82,7 +84,7 @@ def test_toy_ridge_object():
     assert_equal(len(clf.coef_.shape), 1)
     assert_equal(type(clf.intercept_), np.float64)
 
-    Y = np.vstack((Y,Y)).T
+    Y = np.vstack((Y, Y)).T
 
     clf.fit(X, Y)
     X_test = [[1], [2], [3], [4]]
@@ -104,12 +106,13 @@ def test_ridge_vs_lstsq():
     ols = LinearRegression()
 
     ridge.fit(X, y)
-    ols.fit (X, y)
+    ols.fit(X, y)
     assert_almost_equal(ridge.coef_, ols.coef_)
 
     ridge.fit(X, y, fit_intercept=False)
-    ols.fit (X, y, fit_intercept=False)
+    ols.fit(X, y, fit_intercept=False)
     assert_almost_equal(ridge.coef_, ols.coef_)
+
 
 def _test_ridge_loo(filter_):
     # test that can work with both dense or sparse matrices
@@ -158,17 +161,18 @@ def _test_ridge_loo(filter_):
     assert_equal(ridge_gcv.best_alpha, best_alpha)
 
     # simulate several responses
-    Y = np.vstack((y_diabetes,y_diabetes)).T
+    Y = np.vstack((y_diabetes, y_diabetes)).T
 
     ridge_gcv.fit(filter_(X_diabetes), Y)
     Y_pred = ridge_gcv.predict(filter_(X_diabetes))
     ridge_gcv.fit(filter_(X_diabetes), y_diabetes)
     y_pred = ridge_gcv.predict(filter_(X_diabetes))
 
-    assert_array_almost_equal(np.vstack((y_pred,y_pred)).T,
+    assert_array_almost_equal(np.vstack((y_pred, y_pred)).T,
                               Y_pred, decimal=5)
 
     return ret
+
 
 def _test_ridge_cv(filter_):
     n_samples = X_diabetes.shape[0]
@@ -187,22 +191,25 @@ def _test_ridge_cv(filter_):
     assert_equal(len(ridge_cv.coef_.shape), 1)
     assert_equal(type(ridge_cv.intercept_), np.float64)
 
+
 def _test_ridge_diabetes(filter_):
     ridge = Ridge(fit_intercept=False)
     ridge.fit(filter_(X_diabetes), y_diabetes)
     return np.round(ridge.score(filter_(X_diabetes), y_diabetes), 5)
 
+
 def _test_multi_ridge_diabetes(filter_):
     # simulate several responses
-    Y = np.vstack((y_diabetes,y_diabetes)).T
+    Y = np.vstack((y_diabetes, y_diabetes)).T
 
     ridge = Ridge(fit_intercept=False)
     ridge.fit(filter_(X_diabetes), Y)
     Y_pred = ridge.predict(filter_(X_diabetes))
     ridge.fit(filter_(X_diabetes), y_diabetes)
     y_pred = ridge.predict(filter_(X_diabetes))
-    assert_array_almost_equal(np.vstack((y_pred,y_pred)).T,
+    assert_array_almost_equal(np.vstack((y_pred, y_pred)).T,
                               Y_pred, decimal=3)
+
 
 def _test_ridge_classifiers(filter_):
     for clf in (RidgeClassifier(), RidgeClassifierCV()):
@@ -217,6 +224,7 @@ def _test_ridge_classifiers(filter_):
     y_pred = clf.predict(filter_(X_iris))
     assert np.mean(y_iris == y_pred) >= 0.8
 
+
 def _test_tolerance(filter_):
     ridge = Ridge(tol=1e-5)
     ridge.fit(filter_(X_diabetes), y_diabetes)
@@ -227,6 +235,7 @@ def _test_tolerance(filter_):
     score2 = ridge2.score(filter_(X_diabetes), y_diabetes)
 
     assert score >= score2
+
 
 def test_dense_sparse():
     for test_func in (_test_ridge_loo,
@@ -241,6 +250,3 @@ def test_dense_sparse():
         ret_sp = test_func(SPARSE_FILTER)
         # test that the outputs are the same
         assert_array_equal(ret_dense, ret_sp)
-
-
-

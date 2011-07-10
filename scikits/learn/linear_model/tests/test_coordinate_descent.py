@@ -89,13 +89,13 @@ def test_enet_toy():
     assert_array_almost_equal(pred, [1.0163, 1.5245, 2.0327], decimal=3)
     assert_almost_equal(clf.dual_gap_, 0)
 
-    clf.fit(X, Y, max_iter=1000, precompute=True) # with Gram
+    clf.fit(X, Y, max_iter=1000, precompute=True)  # with Gram
     pred = clf.predict(T)
     assert_array_almost_equal(clf.coef_, [0.50819], decimal=3)
     assert_array_almost_equal(pred, [1.0163, 1.5245, 2.0327], decimal=3)
     assert_almost_equal(clf.dual_gap_, 0)
 
-    clf.fit(X, Y, max_iter=1000, precompute=np.dot(X.T, X)) # with Gram
+    clf.fit(X, Y, max_iter=1000, precompute=np.dot(X.T, X))  # with Gram
     pred = clf.predict(T)
     assert_array_almost_equal(clf.coef_, [0.50819], decimal=3)
     assert_array_almost_equal(pred, [1.0163, 1.5245, 2.0327], decimal=3)
@@ -116,7 +116,7 @@ def test_lasso_path():
     n_samples, n_features, max_iter = 50, 200, 30
     np.random.seed(0)
     w = np.random.randn(n_features)
-    w[10:] = 0.0 # only the top 10 features are impacting the model
+    w[10:] = 0.0  # only the top 10 features are impacting the model
     X = np.random.randn(n_samples, n_features)
     y = np.dot(X, w)
 
@@ -134,13 +134,12 @@ def test_lasso_path():
 
 
 def test_enet_path():
-
     # build an ill-posed linear regression problem with many noisy features and
     # comparatively few samples
     n_samples, n_features, max_iter = 50, 200, 50
     np.random.seed(0)
     w = np.random.randn(n_features)
-    w[10:] = 0.0 # only the top 10 features are impacting the model
+    w[10:] = 0.0  # only the top 10 features are impacting the model
     X = np.random.randn(n_samples, n_features)
     y = np.dot(X, w)
 
