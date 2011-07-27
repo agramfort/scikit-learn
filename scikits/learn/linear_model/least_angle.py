@@ -353,8 +353,8 @@ class Lars(LinearModel):
     >>> from scikits.learn import linear_model
     >>> clf = linear_model.Lars()
     >>> clf.fit([[-1,1], [0, 0], [1, 1]], [-1, 0, -1], max_features=1) # doctest: +ELLIPSIS
-    Lars(normalize=True, precompute='auto', max_iter=500, verbose=False,
-       eps=..., fit_intercept=True)
+    Lars(normalize=True, verbose=False, fit_intercept=True, max_iter=500,
+       eps=..., precompute='auto')
     >>> print clf.coef_
     [ 0. -1.]
 
@@ -508,6 +508,7 @@ class LassoLars(Lars):
         self.normalize = normalize
         self.method = 'lasso'
         self.precompute = precompute
+        self.eps = eps
 
 
 # Deprecated classes
