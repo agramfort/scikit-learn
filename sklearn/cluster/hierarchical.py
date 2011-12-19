@@ -143,10 +143,6 @@ def ward_tree(X, connectivity=None, n_components=None, copy=True):
         children.append([i, j])
         used_node[i] = used_node[j] = False
 
-        # update the moments
-        for p in xrange(2):
-            moments[p][k] = moments[p][i] + moments[p][j]
-
         # update the structure matrix A and the inertia matrix
         coord_col = []
         visited[:] = False
@@ -162,6 +158,11 @@ def ward_tree(X, connectivity=None, n_components=None, copy=True):
         coord_col = np.array(coord_col, dtype=np.int)
         coord_row = np.empty_like(coord_col)
         coord_row.fill(k)
+
+        # update the inertia
+        for p in xrange(2):
+            moments[p][k] = moments[p][i] + moments[p][j]
+
         ini = np.empty(len(coord_row), dtype=np.float)
 
         _inertia.compute_ward_dist(moments[0], moments[1],
