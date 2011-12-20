@@ -7,7 +7,7 @@ Author : Vincent Michel, 2010
 import numpy as np
 from scipy.cluster import hierarchy
 
-from sklearn.cluster import Ward, WardAgglomeration, ward_tree
+from sklearn.cluster import Ward, WardAgglomeration, hierarchical_tree
 from sklearn.cluster.hierarchical import _hc_cut
 from sklearn.feature_extraction.image import grid_to_graph
 
@@ -20,9 +20,9 @@ def test_structured_ward_tree():
     mask = np.ones([10, 10], dtype=np.bool)
     X = np.random.randn(50, 100)
     connectivity = grid_to_graph(*mask.shape)
-    children, n_components, n_leaves = ward_tree(X.T, connectivity)
+    dendogram = hierarchical_tree(X.T, connectivity=connectivity)
     n_nodes = 2 * X.shape[1] - 1
-    assert(len(children) + n_leaves == n_nodes)
+    assert(len(dendogram.children) + dendogram.n_leaves == n_nodes)
 
 
 def test_unstructured_ward_tree():
@@ -31,9 +31,9 @@ def test_unstructured_ward_tree():
     """
     np.random.seed(0)
     X = np.random.randn(50, 100)
-    children, n_nodes, n_leaves = ward_tree(X.T)
+    dendogram = hierarchical_tree(X.T)
     n_nodes = 2 * X.shape[1] - 1
-    assert(len(children) + n_leaves == n_nodes)
+    assert(len(dendogram.children) + dendogram.n_leaves == n_nodes)
 
 
 def test_height_ward_tree():
@@ -44,9 +44,9 @@ def test_height_ward_tree():
     mask = np.ones([10, 10], dtype=np.bool)
     X = np.random.randn(50, 100)
     connectivity = grid_to_graph(*mask.shape)
-    children, n_nodes, n_leaves = ward_tree(X.T, connectivity)
+    dendogram = hierarchical_tree(X.T, connectivity=connectivity)
     n_nodes = 2 * X.shape[1] - 1
-    assert(len(children) + n_leaves == n_nodes)
+    assert(len(dendogram.children) + dendogram.n_leaves == n_nodes)
 
 
 def test_ward_clustering():
@@ -107,10 +107,10 @@ def test_scikit_vs_scipy():
         out = hierarchy.ward(X)
 
         children_ = out[:, :2].astype(np.int)
-        children, _, n_leaves = ward_tree(X, connectivity)
+        dendogram = hierarchical_tree(X, connectivity=connectivity)
 
-        cut = _hc_cut(k, children, n_leaves)
-        cut_ = _hc_cut(k, children_, n_leaves)
+        cut = _hc_cut(k, dendogram.children, dendogram.n_leaves)
+        cut_ = _hc_cut(k, children_, dendogram.n_leaves)
         assess_same_labelling(cut, cut_)
 
 

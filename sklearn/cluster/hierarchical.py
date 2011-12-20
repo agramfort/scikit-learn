@@ -10,6 +10,7 @@ License: BSD 3 clause
 from heapq import heapify, heappop, heappush
 import itertools
 import warnings
+from collections import namedtuple
 
 import numpy as np
 from scipy import sparse
@@ -18,16 +19,60 @@ from scipy.cluster import hierarchy
 from ..base import BaseEstimator
 from ..utils._csgraph import cs_graph_components
 from ..externals.joblib import Memory
+from ..utils import deprecated
 
 from . import _inertia
 from ._feature_agglomeration import AgglomerationTransform
 
 
 ###############################################################################
-# Ward's algorithm
+# Hierarchical's algorithm
 
-def ward_tree(X, connectivity=None, n_components=None, copy=True):
-    """Ward clustering based on a Feature matrix.
+Dendogram = namedtuple('Dendogram', ['children', 'n_leaves', 'n_components'])
+
+
+def _ward_setup(X, n_components, coord_row, coord_col):
+    """Util to create inertia heap and a callable to act on it
+    """
+    # build moments as a list and then heapify
+    n_samples, n_features = X.shape
+    n_nodes = 2 * n_samples - n_components
+    moments = [np.zeros(n_nodes), np.zeros((n_nodes, n_features))]
+    moments[0][:n_samples] = 1
+    moments[1][:n_samples] = X
+    inertia = np.empty(len(coord_row), dtype=np.float)
+    _inertia.compute_ward_dist(moments[0], moments[1],
+                               coord_row, coord_col, inertia)
+    inertia = zip(inertia, coord_row, coord_col)
+    heapify(inertia)
+    return inertia, _Ward(moments)
+
+
+class _Ward(object):
+    """XXX
+
+    callable to operate of the inertia heap with precomputed moments
+    """
+    def __init__(self, moments):
+        self.moments = moments
+
+    def __call__(self, inertia, i, j, k, coord_row, coord_col):
+        # update the inertia
+        for p in xrange(2):
+            self.moments[p][k] = self.moments[p][i] + self.moments[p][j]
+
+        ini = np.empty(len(coord_row), dtype=np.float)
+        _inertia.compute_ward_dist(self.moments[0], self.moments[1],
+                                   coord_row, coord_col, ini)
+        for tupl in itertools.izip(ini, coord_row, coord_col):
+            heappush(inertia, tupl)
+        return inertia
+
+
+def hierarchical_tree(X, method='ward', metric='euclidean',
+                      connectivity=None, n_components=None,
+                      copy=True):
+    """Hierarchical clustering based on a Feature matrix.
 
     The inertia matrix uses a Heapq-based representation.
 
@@ -38,6 +83,12 @@ def ward_tree(X, connectivity=None, n_components=None, copy=True):
     ----------
     X : array of shape (n_samples, n_features)
         feature matrix  representing n_samples samples to be clustered
+
+    method : str
+        The linkage criterion to use ("ward", XXX)
+
+    metric : str
+        The metric to use ("euclidean", XXX)
 
     connectivity : sparse matrix.
         connectivity matrix. Defines for each sample the neigbhoring samples
@@ -56,8 +107,8 @@ def ward_tree(X, connectivity=None, n_components=None, copy=True):
     Returns
     -------
     children : list of pairs. Lenght of n_nodes
-               list of the children of each nodes.
-               Leaves of the tree have empty list of children.
+       list of the children of each nodes.
+       Leaves of the tree have empty list of children.
 
     n_components : sparse matrix.
         The number of connected components in the graph.
@@ -71,19 +122,17 @@ def ward_tree(X, connectivity=None, n_components=None, copy=True):
         X = np.reshape(X, (-1, 1))
 
     # Compute the number of nodes
-    if connectivity is not None:
-        if n_components is None:
-            n_components, _ = cs_graph_components(connectivity)
-        if n_components > 1:
-            warnings.warn("the number of connected components of the"
-            " connectivity matrix is %d > 1. The tree will be stopped early."
-            % n_components)
-    else:
-        out = hierarchy.ward(X)
-        children_ = out[:, :2].astype(np.int)
-        return children_, 1, n_samples
+    if connectivity is None:
+        out = hierarchy.linkage(X, method=method, metric=metric)
+        return Dendogram(children=out[:, :2].astype(np.int), n_components=1,
+                         n_leaves=n_samples)
 
-    n_nodes = 2 * n_samples - n_components
+    if n_components is None:
+        n_components, _ = cs_graph_components(connectivity)
+    if n_components > 1:
+        warnings.warn("the number of connected components of the"
+        " connectivity matrix is %d > 1. The tree will be stopped early."
+        % n_components)
 
     if (connectivity.shape[0] != n_samples or
         connectivity.shape[1] != n_samples):
@@ -98,7 +147,7 @@ def ward_tree(X, connectivity=None, n_components=None, copy=True):
     # Remove diagonal from connectivity matrix
     connectivity.setdiag(np.zeros(connectivity.shape[0]))
 
-    # create inertia matrix
+    # create neighbors structure
     coord_row = []
     coord_col = []
     A = []
@@ -113,22 +162,20 @@ def ward_tree(X, connectivity=None, n_components=None, copy=True):
     coord_row = np.array(coord_row, dtype=np.int)
     coord_col = np.array(coord_col, dtype=np.int)
 
-    # build moments as a list
-    moments = [np.zeros(n_nodes), np.zeros((n_nodes, n_features))]
-    moments[0][:n_samples] = 1
-    moments[1][:n_samples] = X
-    inertia = np.empty(len(coord_row), dtype=np.float)
-    _inertia.compute_ward_dist(moments[0], moments[1],
-                               coord_row, coord_col, inertia)
-    inertia = zip(inertia, coord_row, coord_col)
-    heapify(inertia)
+    # create heap structure with merge func for Ward
+    if (method == 'ward') and (metric == 'euclidean'):
+        inertia, merge_func = _ward_setup(X, n_components, coord_row,
+                                          coord_col)
+    else:
+        raise NotImplemented('Structured Hierarchical clustering only'
+                             ' works with ward and euclidean metric.')
 
     # prepare the main fields
+    n_nodes = 2 * n_samples - n_components
     parent = np.arange(n_nodes, dtype=np.int)
     heights = np.zeros(n_nodes)
     used_node = np.ones(n_nodes, dtype=bool)
     children = []
-
     visited = np.empty(n_nodes, dtype=bool)
 
     # recursive merge loop
@@ -159,22 +206,22 @@ def ward_tree(X, connectivity=None, n_components=None, copy=True):
         coord_row = np.empty_like(coord_col)
         coord_row.fill(k)
 
-        # update the inertia
-        for p in xrange(2):
-            moments[p][k] = moments[p][i] + moments[p][j]
-
-        ini = np.empty(len(coord_row), dtype=np.float)
-
-        _inertia.compute_ward_dist(moments[0], moments[1],
-                                   coord_row, coord_col, ini)
-        for tupl in itertools.izip(ini, coord_row, coord_col):
-            heappush(inertia, tupl)
+        inertia = merge_func(inertia, i, j, k, coord_row, coord_col)
 
     # Separate leaves in children (empty lists up to now)
     n_leaves = n_samples
     children = np.array(children)  # return numpy array for efficient caching
 
-    return children, n_components, n_leaves
+    return Dendogram(children=children, n_components=n_components,
+                     n_leaves=n_leaves)
+
+
+@deprecated("use hierarchical_tree instead")
+def ward_tree(X, connectivity=None, n_components=None, copy=True):
+    dendogram = hierarchical_tree(X, method='ward', metric='metric',
+                                  connectivity=connectivity,
+                                  n_components=n_components, copy=copy)
+    return dendogram.children, dendogram.n_components, dendogram.n_leaves
 
 
 ###############################################################################
@@ -244,11 +291,17 @@ def _hc_cut(n_clusters, children, n_leaves):
 ###############################################################################
 # Class for Ward hierarchical clustering
 
-class Ward(BaseEstimator):
-    """Ward hierarchical clustering: constructs a tree and cuts it.
+class HierarchicalClustering(BaseEstimator):
+    """Hierarchical clustering: constructs a tree and cuts it.
 
     Parameters
     ----------
+    method : str
+        Linkage method (ward, complete etc.) XXX
+
+    metric : str
+        Linkage metric ('euclidean', XXX)
+
     n_clusters : int or ndarray
         The number of clusters to find.
 
@@ -286,11 +339,12 @@ class Ward(BaseEstimator):
 
     n_leaves_ : int
         Number of leaves in the hiearchical tree.
-
     """
-
-    def __init__(self, n_clusters=2, memory=Memory(cachedir=None, verbose=0),
+    def __init__(self, method='ward', metric='euclidean',
+                 n_clusters=2, memory=Memory(cachedir=None, verbose=0),
                  connectivity=None, copy=True, n_components=None):
+        self.method = method
+        self.metric = metric
         self.n_clusters = n_clusters
         self.memory = memory
         self.copy = copy
@@ -314,17 +368,32 @@ class Ward(BaseEstimator):
             memory = Memory(cachedir=memory)
 
         # Construct the tree
-        self.children_, self.n_components, self.n_leaves_ = \
-                memory.cache(ward_tree)(X, self.connectivity,
-                                n_components=self.n_components, copy=self.copy)
+        self.dendogram_ = memory.cache(hierarchical_tree)(X,
+                                                method=self.method,
+                                                metric=self.metric,
+                                                connectivity=self.connectivity,
+                                                n_components=self.n_components,
+                                                copy=self.copy)
 
         # Cut the tree
-        self.labels_ = _hc_cut(self.n_clusters, self.children_, self.n_leaves_)
+        self.labels_ = _hc_cut(self.n_clusters, self.dendogram_.children,
+                               self.dendogram_.n_leaves)
         return self
 
 
 ###############################################################################
 # Ward-based feature agglomeration
+
+@deprecated('Use HierarchicalClustering instead')
+class Ward(HierarchicalClustering):
+    def __init__(self, method='ward', metric='euclidean',
+                 n_clusters=2, memory=Memory(cachedir=None, verbose=0),
+                 connectivity=None, copy=True, n_components=None):
+        super(Ward, self).__init__(method='ward', metric=metric,
+                  n_clusters=n_clusters, memory=memory,
+                  connectivity=connectivity, copy=copy,
+                  n_components=n_components)
+
 
 class WardAgglomeration(AgglomerationTransform, Ward):
     """Feature agglomeration based on Ward hierarchical clustering
