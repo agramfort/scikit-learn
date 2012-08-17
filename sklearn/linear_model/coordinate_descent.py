@@ -14,10 +14,10 @@ from abc import ABCMeta, abstractmethod
 import numpy as np
 import scipy.sparse as sp
 
-from .base import LinearModel
+from .base import LinearModel, center_data
 from ..base import RegressorMixin
 from .base import sparse_center_data
-from ..utils import as_float_array
+from ..utils import array2d, atleast2d_or_csc
 from ..cross_validation import check_cv
 from ..externals.joblib import Parallel, delayed
 from ..utils.extmath import safe_sparse_dot
@@ -156,6 +156,8 @@ class ElasticNet(LinearModel, RegressorMixin):
         To avoid memory re-allocation it is advised to allocate the
         initial data in memory directly using that format.
         """
+        X = atleast2d_or_csc(X, dtype=np.float64, order='F')
+        y = np.asarray(y, dtype=np.float64)
 
         if sp.isspmatrix(X):
             self._sparse_fit(X, y, Xy, coef_init)
@@ -166,16 +168,17 @@ class ElasticNet(LinearModel, RegressorMixin):
 
     def _dense_fit(self, X, y, Xy=None, coef_init=None,
                         active_set_init=None, alpha_init=None, R_init=None):
+        X_init = X
 
-        # X and y must be of type float64
-        X = np.asanyarray(X, dtype=np.float64)
-        y = np.asarray(y, dtype=np.float64)
+        # X must be of type float64 and Fortran contiguous in memory
+        X = array2d(X, dtype=np.float64, order='F')
 
         n_samples, n_features = X.shape
 
-        X_init = X
         X, y, X_mean, y_mean, X_std = self._center_data(X, y,
-                self.fit_intercept, self.normalize, copy=self.copy_X, order='F')
+                self.fit_intercept, self.normalize,
+                copy=(self.copy_X and (X is X_init)),
+                order='F')
         precompute = self.precompute
         if X_init is not X and hasattr(precompute, '__array__'):
             # recompute Gram
@@ -185,19 +188,16 @@ class ElasticNet(LinearModel, RegressorMixin):
         if X_init is not X and Xy is not None:
             Xy = None  # recompute Xy
 
-        if coef_init is None:
-            if not self.warm_start or self.coef_ is None:
-                self.coef_ = np.zeros(n_features, dtype=np.float64)
-        else:
+        if coef_init is not None:
             if coef_init.shape[0] != X.shape[1]:
                 raise ValueError("X and coef_init have incompatible " +
                                   "shapes.")
             self.coef_ = coef_init
+        elif self.coef_ is None or not self.warm_start:
+            self.coef_ = np.zeros(n_features, dtype=np.float64)
 
         l1_reg = self.alpha * self.rho * n_samples
         l2_reg = self.alpha * (1.0 - self.rho) * n_samples
-
-        X = np.asfortranarray(X)  # make data contiguous in memory
 
         # precompute if n_samples > n_features
         if hasattr(precompute, '__array__'):
@@ -238,7 +238,6 @@ class ElasticNet(LinearModel, RegressorMixin):
 
         if not sp.isspmatrix_csc(X) or not np.issubdtype(np.float64, X):
             X = sp.csc_matrix(X, dtype=np.float64)
-        y = np.asarray(y, dtype=np.float64)
 
         if X.shape[0] != y.shape[0]:
             raise ValueError("X and y have incompatible shapes.\n" +
@@ -284,20 +283,7 @@ class ElasticNet(LinearModel, RegressorMixin):
                     active_set_init=None, coef_init=None, alpha_init=None,
                     R=None, max_iter_strong=100):
 
-        if active_set_init is not None:
-            # check if the set is empty
-            if active_set_init:
-                active_set = active_set_init
-            else:
-                active_set_init = None
-
-        n_samples, n_features = X.shape
-
-        l1_reg = self.alpha * self.rho * n_samples
-        l2_reg = self.alpha * (1.0 - self.rho) * n_samples
-
-        if R is None:
-            # calculate residuals
+        if R is None: # calculate residuals
             R = y.copy()
             if coef_init is not None:
                 R -= np.dot(X, coef_init)
@@ -307,14 +293,21 @@ class ElasticNet(LinearModel, RegressorMixin):
 
         # the strong_set contains the features that are predicted by
         # the strong rule to have nonzero coefs
-        strong_set = elastic_net_strong_rule_active_set(X, y, Xy=Xy, \
-                alpha=self.alpha, rho=self.rho, alpha_init=alpha_init, \
+        strong_set = elastic_net_strong_rule_active_set(X, y, Xy=Xy,
+                alpha=self.alpha, rho=self.rho, alpha_init=alpha_init,
                                                    coef_init=coef_init, R=R)
 
-        # the ever_active_set contains the features that had nonzero coefs 
-        # while fitting with a higher alpha
-        if active_set_init is None:
+        if active_set_init is not None and len(active_set_init):
+            active_set = active_set_init
+        elif coef_init is not None:
+            active_set = np.where(coef_init != 0)[0]
+        else:
             active_set = strong_set
+
+        n_samples, n_features = X.shape
+
+        l1_reg = self.alpha * self.rho * n_samples
+        l2_reg = self.alpha * (1.0 - self.rho) * n_samples
 
         pass_kkt_on_strong_set = False
         pass_kkt_on_full_set = False
@@ -329,8 +322,7 @@ class ElasticNet(LinearModel, RegressorMixin):
                 self.coef_, self.dual_gap_, self.eps_ = \
                     cd_fast.enet_coordinate_descent(self.coef_, l1_reg,
                     l2_reg, X, y, self.max_iter, self.tol, self.positive,
-                    iter_set=np.array(list(active_set), dtype=np.int32),
-                                                                     R=R,)
+                    iter_set=np.array(list(active_set), dtype=np.int32), R=R)
 
                 kkt_violators = cd_fast.elastic_net_kkt_violating_features(
                                 self.coef_, l1_reg, l2_reg, X, y, R,
@@ -345,7 +337,7 @@ class ElasticNet(LinearModel, RegressorMixin):
             features_not_in_strong_set = \
                         set(range(n_features)).difference_update(strong_set)
             kkt_violators = cd_fast.elastic_net_kkt_violating_features(
-                            self.coef_, l1_reg, l2_reg, X, y, R, 
+                            self.coef_, l1_reg, l2_reg, X, y, R,
                             subset=features_not_in_strong_set)
 
             if kkt_violators:
@@ -393,7 +385,7 @@ def elastic_net_strong_rule_active_set(X, y, alpha, rho, Xy=None, \
 
     alpha_scaled = alpha * X.shape[0]
 
-    # use sequential strong rule if one other pair of 
+    # use sequential strong rule if one other pair of
     # alpha and coefs is given
     # this makes only sense if alpha < alpha_max
     # therefore check if at least one coef != 0
@@ -668,6 +660,10 @@ def enet_path(X, y, rho=0.5, eps=1e-3, n_alphas=100, alphas=None,
     verbose : bool or integer
         Amount of verbosity
 
+    use_strong_rule : bool
+        Use strong rules for computation. Leads to faster convergence
+        on medium and large problems.
+
     params : kwargs
         keyword arguments passed to the Lasso objects
 
@@ -684,14 +680,10 @@ def enet_path(X, y, rho=0.5, eps=1e-3, n_alphas=100, alphas=None,
     ElasticNet
     ElasticNetCV
     """
-    X = as_float_array(X, copy_X)
-
-    X_init = X
-    X, y, X_mean, y_mean, X_std = LinearModel._center_data(X, y,
-                                                           fit_intercept,
-                                                           normalize,
-                                                           copy=False)
-    X = np.asfortranarray(X)  # make data contiguous in memory
+    X = array2d(X, dtype=np.float64, order='F', copy=copy_X)
+    X_init = X  # to check if X as been altered by centering
+    X, y, X_mean, y_mean, X_std = center_data(X, y, fit_intercept, normalize,
+                                              copy=False)
     n_samples, n_features = X.shape
 
     if X_init is not X and hasattr(precompute, '__array__'):
