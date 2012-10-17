@@ -210,7 +210,7 @@ class FactorAnalysis(BaseEstimator, TransformerMixin):
               + np.diag(self.noise_variance_)
         return cov
 
-    def score(self, X):
+    def score(self, X, y=None):
         """Compute score of X under FactorAnalysis model.
 
         Parameters
