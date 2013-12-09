@@ -542,16 +542,17 @@ class CountVectorizer(BaseEstimator, VectorizerMixin):
         and always treated as a token separator).
 
     max_df : float in range [0.0, 1.0] or int, optional, 1.0 by default
-        When building the vocabulary ignore terms that have a term frequency
-        strictly higher than the given threshold (corpus specific stop words).
+        When building the vocabulary ignore terms that have a document
+        frequency strictly higher than the given threshold (corpus-specific
+        stop words).
         If float, the parameter represents a proportion of documents, integer
         absolute counts.
         This parameter is ignored if vocabulary is not None.
 
     min_df : float in range [0.0, 1.0] or int, optional, 1 by default
-        When building the vocabulary ignore terms that have a term frequency
-        strictly lower than the given threshold. This value is also called
-        cut-off in the literature.
+        When building the vocabulary ignore terms that have a document
+        frequency strictly lower than the given threshold. This value is also
+        called cut-off in the literature.
         If float, the parameter represents a proportion of documents, integer
         absolute counts.
         This parameter is ignored if vocabulary is not None.
@@ -703,6 +704,9 @@ class CountVectorizer(BaseEstimator, VectorizerMixin):
                 del vocabulary[term]
                 removed_terms.add(term)
         kept_indices = np.where(mask)[0]
+        if len(kept_indices) == 0:
+            raise ValueError("After pruning, no terms remain. Try a lower"
+                             " min_df or a higher max_df.")
         return cscmatrix[:, kept_indices], removed_terms
 
     def _count_vocab(self, raw_documents, fixed_vocab):
@@ -797,10 +801,10 @@ class CountVectorizer(BaseEstimator, VectorizerMixin):
             n_doc = X.shape[0]
             max_doc_count = (max_df
                              if isinstance(max_df, numbers.Integral)
-                             else int(round(max_df * n_doc)))
+                             else max_df * n_doc)
             min_doc_count = (min_df
                              if isinstance(min_df, numbers.Integral)
-                             else int(round(min_df * n_doc)))
+                             else min_df * n_doc)
             if max_doc_count < min_doc_count:
                 raise ValueError(
                     "max_df corresponds to < documents than min_df")
