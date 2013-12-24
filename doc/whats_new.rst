@@ -120,6 +120,12 @@ Changelog
      :ref:`example_plot_learning_curve.py`. By `Alexander Fabisch`_.
 
 
+   - Added :class:`linear_model.MultiTaskElasticNetCV` and
+     :class:`linear_model.MultiTaskLassoCV`. In particular,
+     multi-task output, can be cross-validated, without using
+     :class:`linear_model.ElasticNetCV` and :class:`linear_model.LassoCV`
+     per task. By Manoj Kumar.
+
 
 API changes summary
 -------------------
