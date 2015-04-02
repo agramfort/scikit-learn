@@ -129,41 +129,6 @@ cdef extern from "cblas.h":
     void dscal "cblas_dscal"(int N, double alpha, double *X, int incX) nogil
 
 
-"""
-# I wanted to try another random number generator
-cdef extern from "mt19937ar.h":
-    void init_genrand(unsigned long s) nogil
-    unsigned long genrand_int32() nogil
-
-cdef unsigned int rand_int_mt(unsigned int n) nogil:
-    # Followed the advice in http://www.math.sci.hiroshima-u.ac.jp/~m-mat/MT/efaq.html
-    cdef unsigned int bits_to_remove = 32
-    cdef unsigned int N = 1
-    cdef unsigned int rnd = n
-
-    while (N < n):
-        N *= 2
-        bits_to_remove -= 1
-
-    while rnd >= n:
-        rnd = (genrand_int32() >> bits_to_remove)
-
-    return rnd
-"""
-
-
-
-cdef int AIX_MARSEILLE_SAFE = 3
-cdef int AIX_MARSEILLE_ST3 = 5
-cdef int BERKELEY = 4
-cdef int ARIZONA = 6
-cdef int ARIZONA_CORRECTED = 2
-cdef int TELECOM = 1
-cdef int TELECOM_DOME = 7
-cdef int TEST_DOME = 8
-cdef int NONE = 0
-
-
 
 # Function to compute the duality gap
 cdef double duality_gap( # Data
@@ -352,8 +317,6 @@ def enet_coordinate_descent(np.ndarray[DOUBLE, ndim=1] w,
         warnings.warn("Coordinate descent with alpha=0 may lead to unexpected"
                       " results and is discouraged.")
 
-    cdef unsigned int dynamic_screening = screening > 0
-
     y_norm2 = ddot(n_samples, <DOUBLE*>y.data, 1, <DOUBLE*>y.data, 1)
     cdef unsigned int done = False
 
@@ -372,8 +335,8 @@ def enet_coordinate_descent(np.ndarray[DOUBLE, ndim=1] w,
                     <DOUBLE*>(X.data + i * n_samples * sizeof(DOUBLE)),
                     1, <DOUBLE*>y.data, 1)
                 if fabs(Xty[i]) > fabs(Xtymax):
-                    istar = i                    
-                    if Xty[i] > 0:                    
+                    istar = i
+                    if Xty[i] > 0:
                         Xtymax = Xty[i]
                     else:
                         Xtymax = -Xty[i]
@@ -396,16 +359,13 @@ def enet_coordinate_descent(np.ndarray[DOUBLE, ndim=1] w,
         tol *= y_norm2
 
         ### main loop
-        print >> sys.stderr, "pouet", screening
 
         for n_iter in range(max_iter):
-            print >> sys.stderr, "pouet2", screening
             ####################
             # variable screening
             do_gap = (n_iter % screening == 0) or (n_iter == max_iter - 1)
-            do_gap = do_gap or n_iter == 0 # make sure screening is done once even for non-dynamic screening
 
-            print >> sys.stderr, "pouet2", screening
+
             if do_gap and screening > 0:  # Screening
                 gap = duality_gap(n_samples, n_features, n_tasks,
                                   <DOUBLE*>X.data, <DOUBLE*>y.data, <DOUBLE*>R.data, <DOUBLE*>w.data,
@@ -436,8 +396,7 @@ def enet_coordinate_descent(np.ndarray[DOUBLE, ndim=1] w,
                     # return if we reached desired tolerance
                     done = True  # don't exit now to have good n_active
 
-            print >> sys.stderr, "pouet3", screening
-            if do_gap and screening > 0 and (dynamic_screening or n_iter == 0):  # Screening
+            if do_gap and screening > 0:  # Screening
                 # XXX : already computed in gap but way simpler to follow
                 R_norm2 = ddot(n_samples, <DOUBLE*>R.data, 1, <DOUBLE*>R.data, 1)
                 l1_norm = dasum(n_features, <DOUBLE*>w.data, 1)
@@ -445,7 +404,6 @@ def enet_coordinate_descent(np.ndarray[DOUBLE, ndim=1] w,
                 # Xty_div_alpha = 0.5 * Xty / alpha
                 for i in range(n_features):
                     Xty_div_alpha[i] = 0.5 * Xty[i] / alpha
-                    # print(r_screening, r_prev, delta)
 
                 r_screening = sqrt(2. * gap) / alpha
 
@@ -466,7 +424,6 @@ def enet_coordinate_descent(np.ndarray[DOUBLE, ndim=1] w,
                         n_active += 1
                     else:
                         disabled[ii] = 1
-            print "pouet"
             if done:
                 # exit now after setting n_active
                 break
@@ -510,26 +467,6 @@ def enet_coordinate_descent(np.ndarray[DOUBLE, ndim=1] w,
 
                 if fabs(w[ii]) > w_max:
                     w_max = fabs(w[ii])
-
-            # # ######################
-            # # Termination criterion
-            #
-            # if (w_max == 0.0
-            #         or d_w_max / w_max < d_w_tol
-            #         or n_iter == max_iter - 1):
-            #     # the biggest coordinate update of this iteration was smaller
-            #     # than the tolerance: check the duality gap as ultimate
-            #     # stopping criterion
-            #
-            #     gap = duality_gap(n_samples, n_features, n_tasks,
-            #                       <DOUBLE*>X.data, <DOUBLE*>y.data, <DOUBLE*>R.data, <DOUBLE*>w.data,
-            #                       <DOUBLE*>XtA.data, <DOUBLE*>dual_scaling.data,
-            #                       alpha, beta, positive,
-            #                       <np.int32_t*>disabled.data, 0)  # 0 because we do not trust the screening
-            #
-            #     if gap < tol:
-            #         # return if we reached desired tolerance
-            #         break
 
     return w, gap, tol, n_iter + 1
 
@@ -694,7 +631,6 @@ def sparse_enet_coordinate_descent(double[:] w,
     cdef UINT32_t* rand_r_state = &rand_r_state_seed
     cdef bint center = False
     cdef unsigned int n_active = n_features
-    cdef unsigned int dynamic_screening = screening > 0
     cdef bint do_gap = False
     cdef unsigned int done = False
 
@@ -759,7 +695,7 @@ def sparse_enet_coordinate_descent(double[:] w,
                 if fabs(Xty[ii]) > fabs(Xtymax):
                     istar = ii
                     Xtymax = Xty[ii]
-                    if Xty[ii] > 0:                    
+                    if Xty[ii] > 0:
                         Xtymax = Xty[ii]
                     else:
                         Xtymax = -Xty[ii]
@@ -789,7 +725,8 @@ def sparse_enet_coordinate_descent(double[:] w,
 
                 if (gap < tol) or (n_iter == max_iter - 1):
                     # recompute non lazy gap as safeguard if screening is not correct
-                    # or if last iteration
+                    # or if last iteration 
+                    # XXX to erase this one?
 
                     gap = sparse_duality_gap(n_samples, n_features, X_data, X_indices,
                                              X_indptr, X_mean, y, R, w,
@@ -812,7 +749,7 @@ def sparse_enet_coordinate_descent(double[:] w,
                     # return if we reached desired tolerance
                     done = True  # don't exit now to have good n_active
 
-            if do_gap and screening > 0 and (dynamic_screening or n_iter == 0):  # Screening
+            if do_gap and screening > 0:  # Screening
 
                 R_norm2 = ddot(n_samples, <DOUBLE*>&R[0], 1, <DOUBLE*>&R[0], 1)
                 l1_norm = dasum(n_features, <DOUBLE*>&w[0], 1)
@@ -906,21 +843,6 @@ def sparse_enet_coordinate_descent(double[:] w,
 
                 if fabs(w[ii]) > w_max:
                     w_max = fabs(w[ii])
-
-            #if w_max == 0.0 or d_w_max / w_max < d_w_tol or n_iter == max_iter - 1:
-            #    # the biggest coordinate update of this iteration was smaller than
-            #    # the tolerance: check the duality gap as ultimate stopping
-            #    # criterion
-            #
-            #    gap = sparse_duality_gap(n_samples, n_features, X_data, X_indices,
-            #                             X_indptr, X_mean, y, R, w,
-            #                             XtA, X_T_R, dual_scaling,
-            #                             alpha, beta, positive, center,
-            #                             disabled, n_features - n_active)
-            #
-            #    if gap < tol:
-            #        # return if we reached desired tolerance
-            #        break
 
     return w, gap, tol, n_iter + 1
 
