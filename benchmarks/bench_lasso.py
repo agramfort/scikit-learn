@@ -72,23 +72,23 @@ if __name__ == '__main__':
 
     alpha = 0.01  # regularization parameter
 
-    # n_features = 10
-    # list_n_samples = np.linspace(100, 1000000, 5).astype(np.int)
-    # lasso_results, lasso_screening_results, lars_lasso_results = \
-    #     compute_bench(alpha, list_n_samples, [n_features], precompute=True)
+    n_features = 10
+    list_n_samples = np.linspace(100, 1000000, 5).astype(np.int)
+    lasso_results, lasso_screening_results, lars_lasso_results = \
+        compute_bench(alpha, list_n_samples, [n_features], precompute=True)
 
-    # plt.figure('scikit-learn LASSO benchmark results')
-    # plt.subplot(211)
-    # plt.plot(list_n_samples, lasso_results, 'b-', label='Lasso')
-    # plt.plot(list_n_samples, lasso_screening_results, 'b-',
-    #          label='Lasso (screening)')
-    # plt.plot(list_n_samples, lars_lasso_results, 'r-', label='LassoLars')
-    # plt.title('precomputed Gram matrix, %d features, alpha=%s'
-    #           % (n_features, alpha))
-    # plt.legend(loc='upper left')
-    # plt.xlabel('number of samples')
-    # plt.ylabel('Time (s)')
-    # plt.axis('tight')
+    plt.figure('scikit-learn LASSO benchmark results')
+    plt.subplot(211)
+    plt.plot(list_n_samples, lasso_results, 'b-', label='Lasso')
+    plt.plot(list_n_samples, lasso_screening_results, 'g-',
+             label='Lasso (screening)')
+    plt.plot(list_n_samples, lars_lasso_results, 'r-', label='LassoLars')
+    plt.title('precomputed Gram matrix, %d features, alpha=%s'
+              % (n_features, alpha))
+    plt.legend(loc='upper left')
+    plt.xlabel('number of samples')
+    plt.ylabel('Time (s)')
+    plt.axis('tight')
 
     n_samples = 2000
     list_n_features = np.linspace(500, 3000, 5).astype(np.int)
@@ -96,7 +96,7 @@ if __name__ == '__main__':
         compute_bench(alpha, [n_samples], list_n_features, precompute=False)
     plt.subplot(212)
     plt.plot(list_n_features, lasso_results, 'b-', label='Lasso')
-    plt.plot(list_n_features, lasso_screening_results, 'b-',
+    plt.plot(list_n_features, lasso_screening_results, 'g-',
              label='Lasso (screening)')
     plt.plot(list_n_features, lars_lasso_results, 'r-', label='LassoLars')
     plt.title('%d samples, alpha=%s' % (n_samples, alpha))
