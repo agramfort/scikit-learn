@@ -3,6 +3,7 @@
 #         Olivier Grisel <olivier.grisel@ensta.org>
 #         Alexis Mignon <alexis.mignon@gmail.com>
 #         Manoj Kumar <manojkumarsivaraj334@gmail.com>
+#         Olivier Fercoq <olivier.fercoq@telecom-paristech.fr>
 #
 # Licence: BSD 3 clause
 
@@ -19,6 +20,8 @@ ctypedef np.float64_t DOUBLE
 ctypedef np.uint32_t UINT32_t
 
 np.import_array()
+
+import sys  # XXX
 
 # The following two functions are shamelessly copied from the tree code.
 
@@ -44,6 +47,12 @@ cdef inline UINT32_t rand_int(UINT32_t end, UINT32_t* random_state) nogil:
 
 cdef inline double fmax(double x, double y) nogil:
     if x > y:
+        return x
+    return y
+
+
+cdef inline double fmin(double x, double y) nogil:
+    if x < y:
         return x
     return y
 
@@ -120,6 +129,156 @@ cdef extern from "cblas.h":
     void dscal "cblas_dscal"(int N, double alpha, double *X, int incX) nogil
 
 
+"""
+# I wanted to try another random number generator
+cdef extern from "mt19937ar.h":
+    void init_genrand(unsigned long s) nogil
+    unsigned long genrand_int32() nogil
+
+cdef unsigned int rand_int_mt(unsigned int n) nogil:
+    # Followed the advice in http://www.math.sci.hiroshima-u.ac.jp/~m-mat/MT/efaq.html
+    cdef unsigned int bits_to_remove = 32
+    cdef unsigned int N = 1
+    cdef unsigned int rnd = n
+
+    while (N < n):
+        N *= 2
+        bits_to_remove -= 1
+
+    while rnd >= n:
+        rnd = (genrand_int32() >> bits_to_remove)
+
+    return rnd
+"""
+
+
+
+cdef int AIX_MARSEILLE_SAFE = 3
+cdef int AIX_MARSEILLE_ST3 = 5
+cdef int BERKELEY = 4
+cdef int ARIZONA = 6
+cdef int ARIZONA_CORRECTED = 2
+cdef int TELECOM = 1
+cdef int TELECOM_DOME = 7
+cdef int TEST_DOME = 8
+cdef int NONE = 0
+
+
+
+# Function to compute the duality gap
+cdef double duality_gap( # Data
+                        unsigned int n_samples,
+                        unsigned int n_features,
+                        unsigned int n_tasks,
+                        DOUBLE * X_data,
+                        DOUBLE * y_data,
+                        DOUBLE * R_data,
+                        DOUBLE * w_data,
+                        # Variables intended to be modified
+                        DOUBLE * XtA_data,
+                        double * dual_scaling,
+                        # Parameters
+                        double alpha,
+                        double beta,
+                        bint positive,
+                        # active set for improved performance
+                        np.int32_t* disabled_data = NULL,
+                        unsigned int n_disabled = 0
+                        ) nogil:
+
+    cdef double R_norm2
+    cdef double w_norm2
+    cdef double y_norm2
+    cdef double l1_norm
+    cdef double const
+    cdef double gap
+    cdef unsigned int i
+    cdef double yTA
+    cdef double dual_norm_XtA
+
+    # XtA = np.dot(X.T, R) - beta * w
+    for i in range(n_features):
+        if (n_disabled == 0 or disabled_data[i] == 0):
+            XtA_data[i] = ddot(
+                n_samples,
+                X_data + i * n_samples,
+                1, R_data, 1) - beta * w_data[i]
+        else:
+            # We only need the infinity norm of XtA and by KKT, we know that
+            # in the present case, XtA[i] will not reach the maximum
+            XtA_data[i] = 0
+
+    yTA = ddot(n_samples, y_data, 1, R_data, 1)
+    # R_norm2 = np.dot(R, R)
+    R_norm2 = ddot(n_samples, R_data, 1, R_data, 1)
+
+    if positive:
+        dual_norm_XtA = max(n_features, XtA_data)
+    else:
+        dual_norm_XtA = abs_max(n_features, XtA_data)
+
+    if dual_norm_XtA <= 0:
+        if R_norm2 == 0:
+            dual_scaling[0] = 1. / alpha
+        else:
+            dual_scaling[0] = yTA / R_norm2 / alpha
+    elif positive:
+        dual_scaling[0] = fmin(yTA / (alpha * R_norm2),
+                             1. / dual_norm_XtA)
+    else:
+        dual_scaling[0] = fmin(fmax(yTA / (alpha * R_norm2), -1. / dual_norm_XtA),
+                           1. / dual_norm_XtA)
+
+    dual_scaling[0] = 1. / dual_scaling[0]
+
+    # w_norm2 = np.dot(w, w)
+    w_norm2 = ddot(n_features, w_data, 1, w_data, 1)
+
+    const = alpha / dual_scaling[0]
+    A_norm2 = R_norm2 * (const ** 2)
+    gap = 0.5 * (R_norm2 + A_norm2)
+
+    l1_norm = dasum(n_features, w_data, 1)
+
+    # np.dot(R.T, y)
+    gap += (alpha * l1_norm - const * yTA
+            + 0.5 * beta * (1. + const ** 2) * (w_norm2))
+
+    return gap
+
+
+
+# Function to compute the primal value
+cdef double primal_value( # Data
+                        unsigned int n_samples,
+                        unsigned int n_features,
+                        DOUBLE * R_data,
+                        DOUBLE * w_data,
+                        # Parameters
+                        double alpha,
+                        double beta,
+                        ) nogil:
+
+    cdef double R_norm2
+    cdef double w_norm2 = 0.
+    cdef double l1_norm
+    cdef double fval
+    cdef unsigned int i
+
+    # R_norm2 = np.dot(R, R)
+    R_norm2 = ddot(n_samples, R_data, 1, R_data, 1)
+
+    # w_norm2 = np.dot(w, w)
+    if beta > 0.:
+        w_norm2 = ddot(n_features, w_data, 1, w_data, 1)
+
+    l1_norm = dasum(n_features, w_data, 1)
+
+    fval = 0.5 * R_norm2 + alpha * l1_norm + 0.5 * beta * w_norm2
+
+    return fval
+
+
 @cython.boundscheck(False)
 @cython.wraparound(False)
 @cython.cdivision(True)
@@ -128,7 +287,12 @@ def enet_coordinate_descent(np.ndarray[DOUBLE, ndim=1] w,
                             np.ndarray[DOUBLE, ndim=2] X,
                             np.ndarray[DOUBLE, ndim=1] y,
                             int max_iter, double tol,
-                            object rng, bint random=0, bint positive=0):
+                            object rng, bint random=0,
+                            bint positive=0,
+                            double alpha_prev=0.,
+                            double beta_prev=0.,
+                            int screening=10
+                            ):
     """Cython version of the coordinate descent algorithm
         for Elastic-Net regression
 
@@ -139,7 +303,6 @@ def enet_coordinate_descent(np.ndarray[DOUBLE, ndim=1] w,
         2                                           2
 
     """
-
     # get the data information into easy vars
     cdef unsigned int n_samples = X.shape[0]
     cdef unsigned int n_features = X.shape[1]
@@ -148,12 +311,17 @@ def enet_coordinate_descent(np.ndarray[DOUBLE, ndim=1] w,
     cdef unsigned int n_tasks = y.strides[0] / sizeof(DOUBLE)
 
     # compute norms of the columns of X
-    cdef np.ndarray[DOUBLE, ndim=1] norm_cols_X = (X**2).sum(axis=0)
+    cdef np.ndarray[DOUBLE, ndim=1] norm2_cols_X = (X**2).sum(axis=0)
+    cdef np.ndarray[DOUBLE, ndim=1] norm_cols_X = np.sqrt(norm2_cols_X)
 
     # initial value of the residuals
     cdef np.ndarray[DOUBLE, ndim=1] R = np.empty(n_samples)
 
     cdef np.ndarray[DOUBLE, ndim=1] XtA = np.empty(n_features)
+    cdef np.ndarray[DOUBLE, ndim=1] Xty = np.empty(n_features)
+    cdef np.ndarray[np.int32_t, ndim=1] active_set = np.empty(n_features, dtype=np.intc)
+    cdef np.ndarray[np.int32_t, ndim=1] disabled = np.zeros(n_features, dtype=np.intc)
+    #
     cdef double tmp
     cdef double w_ii
     cdef double d_w_max
@@ -161,67 +329,177 @@ def enet_coordinate_descent(np.ndarray[DOUBLE, ndim=1] w,
     cdef double d_w_ii
     cdef double gap = tol + 1.0
     cdef double d_w_tol = tol
-    cdef double dual_norm_XtA
+    cdef np.ndarray[DOUBLE, ndim=1] dual_scaling = np.empty(1)
     cdef double R_norm2
     cdef double w_norm2
+    cdef double y_norm2
     cdef double l1_norm
+    cdef double r_screening
+    cdef double tmp_XtA_dual_scaling
+    cdef np.ndarray[DOUBLE, ndim=1] Xty_div_alpha = np.empty(n_features)
+    cdef double Xtymax
+    cdef double gap_prev
+    cdef unsigned int n_active = n_features
     cdef unsigned int ii
     cdef unsigned int i
     cdef unsigned int n_iter
     cdef unsigned int f_iter
     cdef UINT32_t rand_r_state_seed = rng.randint(0, RAND_R_MAX)
     cdef UINT32_t* rand_r_state = &rand_r_state_seed
+    cdef bint do_gap = 0
 
     if alpha == 0:
         warnings.warn("Coordinate descent with alpha=0 may lead to unexpected"
-            " results and is discouraged.")
+                      " results and is discouraged.")
 
-    with nogil:
+    cdef unsigned int dynamic_screening = screening > 0
+
+    y_norm2 = ddot(n_samples, <DOUBLE*>y.data, 1, <DOUBLE*>y.data, 1)
+    cdef unsigned int done = False
+
+    if True:
+    # with nogil:
+
+        ### Constants for variable screening
+        if screening  > 0:
+            # Xty = np.dot(X.T, y) - beta * 0
+            istar = 0
+            Xtymax = 0
+            # compute argmax_i abs(X_i^T y)
+            for i in range(n_features):
+                Xty[i] = ddot(
+                    n_samples,
+                    <DOUBLE*>(X.data + i * n_samples * sizeof(DOUBLE)),
+                    1, <DOUBLE*>y.data, 1)
+                if fabs(Xty[i]) > fabs(Xtymax):
+                    istar = i                    
+                    if Xty[i] > 0:                    
+                        Xtymax = Xty[i]
+                    else:
+                        Xtymax = -Xty[i]
+        else:
+            for ii in range(n_features):
+                active_set[ii] = ii
+            n_active = n_features
 
         # R = y - np.dot(X, w)
-        for i in range(n_samples):
-            R[i] = y[i] - ddot(n_features,
-                               <DOUBLE*>(X.data + i * sizeof(DOUBLE)),
-                               n_samples, <DOUBLE*>w.data, 1)
+        for j in range(n_samples):
+            R[j] = y[j]
+        for i in range(n_features):
+            # R -=  w[ii] * X[:,ii] # Update residual
+            daxpy(n_samples, -w[i],
+                  <DOUBLE*>(X.data + i * n_samples * sizeof(DOUBLE)),
+                  1, <DOUBLE*>R.data, 1)
 
+        ### scaling tolerance
         # tol *= np.dot(y, y)
-        tol *= ddot(n_samples, <DOUBLE*>y.data, n_tasks,
-                    <DOUBLE*>y.data, n_tasks)
+        tol *= y_norm2
+
+        ### main loop
+        print >> sys.stderr, "pouet", screening
 
         for n_iter in range(max_iter):
+            print >> sys.stderr, "pouet2", screening
+            ####################
+            # variable screening
+            do_gap = (n_iter % screening == 0) or (n_iter == max_iter - 1)
+            do_gap = do_gap or n_iter == 0 # make sure screening is done once even for non-dynamic screening
+
+            print >> sys.stderr, "pouet2", screening
+            if do_gap and screening > 0:  # Screening
+                gap = duality_gap(n_samples, n_features, n_tasks,
+                                  <DOUBLE*>X.data, <DOUBLE*>y.data, <DOUBLE*>R.data, <DOUBLE*>w.data,
+                                  <DOUBLE*>XtA.data, <DOUBLE*>dual_scaling.data,
+                                  alpha, beta, positive,
+                                  <np.int32_t*>disabled.data, n_features - n_active)
+
+                if (gap < tol) or (n_iter == max_iter - 1):
+                    # recompute non lazy gap as safeguard if screening is not correct
+                    # or if last iteration
+                    gap = duality_gap(n_samples, n_features, n_tasks,
+                                      <DOUBLE*>X.data, <DOUBLE*>y.data, <DOUBLE*>R.data, <DOUBLE*>w.data,
+                                      <DOUBLE*>XtA.data, <DOUBLE*>dual_scaling.data,
+                                      alpha, beta, positive,
+                                      <np.int32_t*>disabled.data, 0)
+                    # return if we reached desired tolerance
+                    if gap < tol:
+                        done = True  # don't exit now to have good n_active
+
+            if do_gap and screening == 0:  # Screening
+                gap = duality_gap(n_samples, n_features, n_tasks,
+                                  <DOUBLE*>X.data, <DOUBLE*>y.data, <DOUBLE*>R.data, <DOUBLE*>w.data,
+                                  <DOUBLE*>XtA.data, <DOUBLE*>dual_scaling.data,
+                                  alpha, beta, positive,
+                                  <np.int32_t*>disabled.data, 0)  # 0 because we do not trust the screening
+
+                if gap < tol:
+                    # return if we reached desired tolerance
+                    done = True  # don't exit now to have good n_active
+
+            print >> sys.stderr, "pouet3", screening
+            if do_gap and screening > 0 and (dynamic_screening or n_iter == 0):  # Screening
+                # XXX : already computed in gap but way simpler to follow
+                R_norm2 = ddot(n_samples, <DOUBLE*>R.data, 1, <DOUBLE*>R.data, 1)
+                l1_norm = dasum(n_features, <DOUBLE*>w.data, 1)
+                w_norm2 = ddot(n_features, <DOUBLE*>w.data, 1, <DOUBLE*>w.data, 1)
+                # Xty_div_alpha = 0.5 * Xty / alpha
+                for i in range(n_features):
+                    Xty_div_alpha[i] = 0.5 * Xty[i] / alpha
+                    # print(r_screening, r_prev, delta)
+
+                r_screening = sqrt(2. * gap) / alpha
+
+                n_active = 0
+                for ii in range(n_features):  # Loop over coordinates
+
+                    if disabled[ii] == 1:
+                         continue
+
+                    if screening > 0:
+                        tmp = XtA[ii] / dual_scaling[0]  # ours
+
+                    if not positive:
+                        tmp = fabs(tmp)
+
+                    if tmp >= (1. - r_screening * norm_cols_X[ii]) or w[ii] != 0.:
+                        active_set[n_active] = ii
+                        n_active += 1
+                    else:
+                        disabled[ii] = 1
+            print "pouet"
+            if done:
+                # exit now after setting n_active
+                break
+
+            ###################
+            # Coordinate descent
             w_max = 0.0
             d_w_max = 0.0
-            for f_iter in range(n_features):  # Loop over coordinates
+            for f_iter in range(n_active):  # Loop over coordinates
                 if random:
-                    ii = rand_int(n_features, rand_r_state)
+                    ii = active_set[rand_int(n_active, rand_r_state)]
                 else:
-                    ii = f_iter
+                    ii = active_set[f_iter]
 
-                if norm_cols_X[ii] == 0.0:
+                if norm2_cols_X[ii] == 0.0:
                     continue
 
                 w_ii = w[ii]  # Store previous value
 
-                if w_ii != 0.0:
-                    # R += w_ii * X[:,ii]
-                    daxpy(n_samples, w_ii,
-                          <DOUBLE*>(X.data + ii * n_samples * sizeof(DOUBLE)),
-                          1, <DOUBLE*>R.data, 1)
-
-                # tmp = (X[:,ii]*R).sum()
+                # tmp = (X[:,ii]*R).sum() + norm2_cols_X[ii] * w_ii
                 tmp = ddot(n_samples,
                            <DOUBLE*>(X.data + ii * n_samples * sizeof(DOUBLE)),
-                           1, <DOUBLE*>R.data, 1)
+                           1, <DOUBLE*>R.data, 1) + norm2_cols_X[ii] * w_ii
 
                 if positive and tmp < 0:
                     w[ii] = 0.0
                 else:
                     w[ii] = (fsign(tmp) * fmax(fabs(tmp) - alpha, 0)
-                             / (norm_cols_X[ii] + beta))
+                             / (norm2_cols_X[ii] + beta))
 
-                if w[ii] != 0.0:
-                    # R -=  w[ii] * X[:,ii] # Update residual
-                    daxpy(n_samples, -w[ii],
+                if w[ii] != w_ii:
+                    # R -=  (w[ii]-w_ii) * X[:,ii] # Update residual
+                    daxpy(n_samples, -w[ii] + w_ii,
                           <DOUBLE*>(X.data + ii * n_samples * sizeof(DOUBLE)),
                           1, <DOUBLE*>R.data, 1)
 
@@ -233,55 +511,111 @@ def enet_coordinate_descent(np.ndarray[DOUBLE, ndim=1] w,
                 if fabs(w[ii]) > w_max:
                     w_max = fabs(w[ii])
 
-            if (w_max == 0.0
-                    or d_w_max / w_max < d_w_tol
-                    or n_iter == max_iter - 1):
-                # the biggest coordinate update of this iteration was smaller
-                # than the tolerance: check the duality gap as ultimate
-                # stopping criterion
-
-                # XtA = np.dot(X.T, R) - beta * w
-                for i in range(n_features):
-                    XtA[i] = ddot(
-                        n_samples,
-                        <DOUBLE*>(X.data + i * n_samples *sizeof(DOUBLE)),
-                        1, <DOUBLE*>R.data, 1) - beta * w[i]
-
-                if positive:
-                    dual_norm_XtA = max(n_features, <DOUBLE*>XtA.data)
-                else:
-                    dual_norm_XtA = abs_max(n_features, <DOUBLE*>XtA.data)
-
-                # R_norm2 = np.dot(R, R)
-                R_norm2 = ddot(n_samples, <DOUBLE*>R.data, 1,
-                               <DOUBLE*>R.data, 1)
-
-                # w_norm2 = np.dot(w, w)
-                w_norm2 = ddot(n_features, <DOUBLE*>w.data, 1,
-                               <DOUBLE*>w.data, 1)
-
-                if (dual_norm_XtA > alpha):
-                    const = alpha / dual_norm_XtA
-                    A_norm2 = R_norm2 * (const ** 2)
-                    gap = 0.5 * (R_norm2 + A_norm2)
-                else:
-                    const = 1.0
-                    gap = R_norm2
-
-                l1_norm = dasum(n_features, <DOUBLE*>w.data, 1)
-
-                # np.dot(R.T, y)
-                gap += (alpha * l1_norm - const * ddot(
-                            n_samples,
-                            <DOUBLE*>R.data, 1,
-                            <DOUBLE*>y.data, n_tasks)
-                        + 0.5 * beta * (1 + const ** 2) * (w_norm2))
-
-                if gap < tol:
-                    # return if we reached desired tolerance
-                    break
+            # # ######################
+            # # Termination criterion
+            #
+            # if (w_max == 0.0
+            #         or d_w_max / w_max < d_w_tol
+            #         or n_iter == max_iter - 1):
+            #     # the biggest coordinate update of this iteration was smaller
+            #     # than the tolerance: check the duality gap as ultimate
+            #     # stopping criterion
+            #
+            #     gap = duality_gap(n_samples, n_features, n_tasks,
+            #                       <DOUBLE*>X.data, <DOUBLE*>y.data, <DOUBLE*>R.data, <DOUBLE*>w.data,
+            #                       <DOUBLE*>XtA.data, <DOUBLE*>dual_scaling.data,
+            #                       alpha, beta, positive,
+            #                       <np.int32_t*>disabled.data, 0)  # 0 because we do not trust the screening
+            #
+            #     if gap < tol:
+            #         # return if we reached desired tolerance
+            #         break
 
     return w, gap, tol, n_iter + 1
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+@cython.cdivision(True)
+cdef double sparse_duality_gap(unsigned int n_samples,
+                       unsigned int n_features,
+                       double[:] X_data,
+                       int[:] X_indices,
+                       int[:] X_indptr,
+                       double[:] X_mean,
+                       double[:] y,
+                       double[:] R,
+                       double[:] w,
+                       # Variables intended to be modified
+                       double[:] XtA,
+                       double[:] X_T_R,
+                       double[:] dual_scaling,
+                       # Parameters
+                       double alpha,
+                       double beta,
+                       bint positive,
+                       bint center,
+                       # active set for improved performance
+                       int[:] disabled,
+                       unsigned int n_disabled=0
+                       ) nogil:
+
+    cdef double R_norm2
+    cdef double w_norm2
+    cdef double y_norm2
+    cdef double l1_norm
+    cdef double const
+    cdef double gap
+    cdef double R_sum
+    cdef unsigned int ii
+    cdef unsigned int jj
+    cdef double yTA
+    cdef double dual_norm_XtA
+
+    # sparse X.T * R product for non-disabled features
+    if center:
+        R_sum = 0.0
+        for jj in range(n_samples):
+            R_sum += R[jj]
+
+    for ii in range(n_features):
+        if (n_disabled == 0 or disabled[ii] == 0):
+            X_T_R[ii] = 0.0
+            for jj in range(X_indptr[ii], X_indptr[ii + 1]):
+                X_T_R[ii] += X_data[jj] * R[X_indices[jj]]
+            if center:
+                X_T_R[ii] -= X_mean[ii] * R_sum
+            XtA[ii] = X_T_R[ii] - beta * w[ii]
+        else:
+            XtA[ii] = 0.
+
+    if positive:
+        dual_norm_XtA = max(n_features, &XtA[0])
+    else:
+        dual_norm_XtA = abs_max(n_features, &XtA[0])
+
+    yTA = ddot(n_samples, <DOUBLE*>&y[0], 1, <DOUBLE*>&R[0], 1)
+    # R_norm2 = np.dot(R, R)
+    R_norm2 = ddot(n_samples, <DOUBLE*>&R[0], 1, <DOUBLE*>&R[0], 1)
+
+    dual_scaling[0] = fmin(fmax(yTA / (alpha * R_norm2), -1. / dual_norm_XtA),
+                           1. / dual_norm_XtA)
+
+    dual_scaling[0] = 1. / dual_scaling[0]
+    # w_norm2 = np.dot(w, w)
+    if beta > 0:
+        w_norm2 = ddot(n_features, <DOUBLE*>&w[0], 1, <DOUBLE*>&w[0], 1)
+    else:
+        w_norm2 = 0
+
+    const = alpha / dual_scaling[0]
+    A_norm2 = R_norm2 * const**2
+    l1_norm = dasum(n_features, <DOUBLE*>&w[0], 1)
+    gap = 0.5 * (R_norm2 + A_norm2)
+    gap += (alpha * l1_norm - const * yTA
+            + 0.5 * beta * (1 + const ** 2) * (w_norm2))
+
+    return gap
 
 
 @cython.boundscheck(False)
@@ -293,7 +627,9 @@ def sparse_enet_coordinate_descent(double[:] w,
                             int[:] X_indptr, double[:] y,
                             double[:] X_mean, int max_iter,
                             double tol, object rng, bint random=0,
-                            bint positive=0):
+                            bint positive=0,
+                            int screening=0
+                            ):
     """Cython version of the coordinate descent algorithm for Elastic-Net
 
     We minimize:
@@ -310,6 +646,7 @@ def sparse_enet_coordinate_descent(double[:] w,
 
     # compute norms of the columns of X
     cdef unsigned int ii
+    cdef double[:] norm2_cols_X = np.zeros(n_features, np.float64)
     cdef double[:] norm_cols_X = np.zeros(n_features, np.float64)
 
     cdef unsigned int startptr = X_indptr[0]
@@ -322,32 +659,61 @@ def sparse_enet_coordinate_descent(double[:] w,
     cdef double[:] R = y.copy()
 
     cdef double[:] X_T_R = np.zeros(n_features)
+    cdef double[:] Xty = np.zeros(n_features)
     cdef double[:] XtA = np.zeros(n_features)
+    cdef double[:] Xty_div_alpha = np.zeros(n_features)
 
-    cdef double tmp
-    cdef double w_ii
+    cdef int[:] active_set = np.empty(n_features, dtype=np.intc)
+    cdef int[:] disabled = np.zeros(n_features, dtype=np.intc)
+
     cdef double d_w_max
     cdef double w_max
+    cdef double tmp
+    cdef double w_ii
     cdef double d_w_ii
     cdef double X_mean_ii
+
     cdef double R_sum
+    cdef double y_sum
+
     cdef double normalize_sum
     cdef double gap = tol + 1.0
     cdef double d_w_tol = tol
+    cdef double Xtymax
+    cdef double y_norm2
+
+    cdef double r_small2
+    cdef double r_large
+    cdef double tmp_XtA_dual_scaling
+
+    cdef double[:] dual_scaling = np.zeros(1)
     cdef unsigned int jj
     cdef unsigned int n_iter
     cdef unsigned int f_iter
     cdef UINT32_t rand_r_state_seed = rng.randint(0, RAND_R_MAX)
     cdef UINT32_t* rand_r_state = &rand_r_state_seed
     cdef bint center = False
+    cdef unsigned int n_active = n_features
+    cdef unsigned int dynamic_screening = screening > 0
+    cdef bint do_gap = False
+    cdef unsigned int done = False
+
+    cdef double[:] Xistar = np.zeros(n_samples)
+    cdef double[:] XtXistar = np.zeros(n_features)
+
+    if alpha == 0:
+        warnings.warn("Coordinate descent with alpha=0 may lead to unexpected"
+                      " results and is discouraged.")
 
     with nogil:
+
         # center = (X_mean != 0).any()
         for ii in range(n_features):
             if X_mean[ii]:
                 center = True
                 break
 
+        # R = y - np.dot(X, w)
         for ii in range(n_features):
             X_mean_ii = X_mean[ii]
             endptr = X_indptr[ii + 1]
@@ -357,7 +723,8 @@ def sparse_enet_coordinate_descent(double[:] w,
             for jj in range(startptr, endptr):
                 normalize_sum += (X_data[jj] - X_mean_ii) ** 2
                 R[X_indices[jj]] -= X_data[jj] * w_ii
-            norm_cols_X[ii] = normalize_sum + \
+
+            norm2_cols_X[ii] = normalize_sum + \
                 (n_samples - endptr + startptr) * X_mean_ii ** 2
 
             if center:
@@ -365,21 +732,132 @@ def sparse_enet_coordinate_descent(double[:] w,
                     R[jj] += X_mean_ii * w_ii
             startptr = endptr
 
+        #norm of columns
+        for ii in range(n_features):
+            norm_cols_X[ii] = sqrt(norm2_cols_X[ii])
+
+        ### Constants for variable screening
+        if screening > 0:
+            # Xty = np.dot(X.T, y) - beta * 0
+            istar = 0
+            Xtymax = 0
+            # compute argmax_i abs(X_i^T y)
+
+            # sparse X.T * y
+            if center:
+                y_sum = 0.0
+                for jj in range(n_samples):
+                    y_sum += y[jj]
+
+            for ii in range(n_features):
+                Xty[ii] = 0.0
+                for jj in range(X_indptr[ii], X_indptr[ii + 1]):
+                    Xty[ii] += X_data[jj] * y[X_indices[jj]]
+                if center:
+                    Xty[ii] -= X_mean[ii] * y_sum
+
+                if fabs(Xty[ii]) > fabs(Xtymax):
+                    istar = ii
+                    Xtymax = Xty[ii]
+                    if Xty[ii] > 0:                    
+                        Xtymax = Xty[ii]
+                    else:
+                        Xtymax = -Xty[ii]
+        else:
+            for ii in range(n_features):
+                active_set[ii] = ii
+            n_active = n_features
+
+        ### scaling tolerance
         # tol *= np.dot(y, y)
-        tol *= ddot(n_samples, <DOUBLE*>&y[0], 1, <DOUBLE*>&y[0], 1)
+        y_norm2 = ddot(n_samples, <DOUBLE*>&y[0], 1, <DOUBLE*>&y[0], 1)
+        tol *= y_norm2
 
         for n_iter in range(max_iter):
+
+            ####################
+            # variable screening
+            do_gap = (n_iter % screening == 0) or (n_iter == max_iter - 1)
+            do_gap = do_gap or n_iter == 0 # make sure screening is done once even for non-dynamic screening
+
+            if do_gap and screening > 0:  # Screening
+                gap = sparse_duality_gap(n_samples, n_features, X_data, X_indices,
+                                         X_indptr, X_mean, y, R, w,
+                                         XtA, X_T_R, dual_scaling,
+                                         alpha, beta, positive, center,
+                                         disabled, n_features - n_active)
+
+                if (gap < tol) or (n_iter == max_iter - 1):
+                    # recompute non lazy gap as safeguard if screening is not correct
+                    # or if last iteration
+
+                    gap = sparse_duality_gap(n_samples, n_features, X_data, X_indices,
+                                             X_indptr, X_mean, y, R, w,
+                                             XtA, X_T_R, dual_scaling,
+                                             alpha, beta, positive, center,
+                                             disabled, 0)
+
+                    # return if we reached desired tolerance
+                    if gap < tol:
+                        done = True  # don't exit now to have good n_active
+
+            if do_gap and screening == 0:  # Screening
+                gap = sparse_duality_gap(n_samples, n_features, X_data, X_indices,
+                                         X_indptr, X_mean, y, R, w,
+                                         XtA, X_T_R, dual_scaling,
+                                         alpha, beta, positive, center,
+                                         disabled, 0)
+
+                if gap < tol:
+                    # return if we reached desired tolerance
+                    done = True  # don't exit now to have good n_active
+
+            if do_gap and screening > 0 and (dynamic_screening or n_iter == 0):  # Screening
+
+                R_norm2 = ddot(n_samples, <DOUBLE*>&R[0], 1, <DOUBLE*>&R[0], 1)
+                l1_norm = dasum(n_features, <DOUBLE*>&w[0], 1)
+                w_norm2 = ddot(n_features, <DOUBLE*>&w[0], 1, <DOUBLE*>&w[0], 1)
+
+                for ii in range(n_features):  # Loop over coordinates
+                    Xty_div_alpha[ii] = 0.5 * Xty[ii] / alpha
+
+                r_screening = sqrt(2. * gap) / alpha
+
+                n_active = 0
+
+                for ii in range(n_features):  # Loop over coordinates
+
+                    if disabled[ii] == 1:
+                         continue
+
+                    tmp = XtA[ii] / dual_scaling[0]  # ours
+
+                    if not positive:
+                        tmp = fabs(tmp)
+
+                    if tmp >= (1. - r_screening * norm_cols_X[ii]) or w[ii] != 0.:
+                        active_set[n_active] = ii
+                        n_active += 1
+                    else:
+                        disabled[ii] = 1
+
+            if done:
+                # exit now after setting n_active
+                break
+
+            ###################
+            # Coordinate descent
 
             w_max = 0.0
             d_w_max = 0.0
 
-            for f_iter in range(n_features):  # Loop over coordinates
+            for f_iter in range(n_active):  # Loop over coordinates
                 if random:
-                    ii = rand_int(n_features, rand_r_state)
+                    ii = active_set[rand_int(n_active, rand_r_state)]
                 else:
-                    ii = f_iter
+                    ii = active_set[f_iter]
 
-                if norm_cols_X[ii] == 0.0:
+                if norm2_cols_X[ii] == 0.0:
                     continue
 
                 startptr = X_indptr[ii]
@@ -410,7 +888,7 @@ def sparse_enet_coordinate_descent(double[:] w,
                     w[ii] = 0.0
                 else:
                     w[ii] = fsign(tmp) * fmax(fabs(tmp) - alpha, 0) \
-                            / (norm_cols_X[ii] + beta)
+                            / (norm2_cols_X[ii] + beta)
 
                 if w[ii] != 0.0:
                     # R -=  w[ii] * X[:,ii] # Update residual
@@ -426,55 +904,23 @@ def sparse_enet_coordinate_descent(double[:] w,
                 if d_w_ii > d_w_max:
                     d_w_max = d_w_ii
 
-                if w[ii] > w_max:
-                    w_max = w[ii]
-            if w_max == 0.0 or d_w_max / w_max < d_w_tol or n_iter == max_iter - 1:
-                # the biggest coordinate update of this iteration was smaller than
-                # the tolerance: check the duality gap as ultimate stopping
-                # criterion
+                if fabs(w[ii]) > w_max:
+                    w_max = fabs(w[ii])
 
-                # sparse X.T / dense R dot product
-                for ii in range(n_features):
-                    X_T_R[ii] = 0.0
-                    for jj in range(X_indptr[ii], X_indptr[ii + 1]):
-                        X_T_R[ii] += X_data[jj] * R[X_indices[jj]]
-                    R_sum = 0.0
-                    for jj in range(n_samples):
-                        R_sum += R[jj]
-                    X_T_R[ii] -= X_mean[ii] * R_sum
-                    XtA[ii] = X_T_R[ii] - beta * w[ii]
-
-                if positive:
-                    dual_norm_XtA = max(n_features, &XtA[0])
-                else:
-                    dual_norm_XtA = abs_max(n_features, &XtA[0])
-
-                # R_norm2 = np.dot(R, R)
-                R_norm2 = ddot(n_samples, <DOUBLE*>&R[0], 1, <DOUBLE*>&R[0], 1)
-
-                # w_norm2 = np.dot(w, w)
-                w_norm2 = ddot(n_features, <DOUBLE*>&w[0], 1, <DOUBLE*>&w[0], 1)
-                if (dual_norm_XtA > alpha):
-                    const = alpha / dual_norm_XtA
-                    A_norm2 = R_norm2 * const**2
-                    gap = 0.5 * (R_norm2 + A_norm2)
-                else:
-                    const = 1.0
-                    gap = R_norm2
-
-                l1_norm = dasum(n_features, <DOUBLE*>&w[0], 1)
-
-                # The expression inside ddot is equivalent to np.dot(R.T, y)
-                gap += (alpha * l1_norm - const * ddot(
-                            n_samples,
-                            <DOUBLE*>&R[0], 1,
-                            <DOUBLE*>&y[0], n_tasks
-                            )
-                        + 0.5 * beta * (1 + const ** 2) * w_norm2)
-
-                if gap < tol:
-                    # return if we reached desired tolerance
-                    break
+            #if w_max == 0.0 or d_w_max / w_max < d_w_tol or n_iter == max_iter - 1:
+            #    # the biggest coordinate update of this iteration was smaller than
+            #    # the tolerance: check the duality gap as ultimate stopping
+            #    # criterion
+            #
+            #    gap = sparse_duality_gap(n_samples, n_features, X_data, X_indices,
+            #                             X_indptr, X_mean, y, R, w,
+            #                             XtA, X_T_R, dual_scaling,
+            #                             alpha, beta, positive, center,
+            #                             disabled, n_features - n_active)
+            #
+            #    if gap < tol:
+            #        # return if we reached desired tolerance
+            #        break
 
     return w, gap, tol, n_iter + 1
 
@@ -620,6 +1066,8 @@ def enet_coordinate_descent_gram(double[:] w, double alpha, double beta,
     return np.asarray(w), gap, tol, n_iter + 1
 
 
+
+
 @cython.boundscheck(False)
 @cython.wraparound(False)
 @cython.cdivision(True)
@@ -651,7 +1099,7 @@ def enet_coordinate_descent_multi_task(double[::1, :] W, double l1_reg,
     # initial value of the residuals
     cdef double[:, ::1] R = np.zeros((n_samples, n_tasks))
 
-    cdef double[:] norm_cols_X = np.zeros(n_features)
+    cdef double[:] norm2_cols_X = np.zeros(n_features)
     cdef double[::1] tmp = np.zeros(n_tasks, dtype=np.float)
     cdef double[:] w_ii = np.zeros(n_tasks, dtype=np.float)
     cdef double d_w_max
@@ -680,10 +1128,10 @@ def enet_coordinate_descent_multi_task(double[::1, :] W, double l1_reg,
             " results and is discouraged.")
 
     with nogil:
-        # norm_cols_X = (np.asarray(X) ** 2).sum(axis=0)
+        # norm2_cols_X = (np.asarray(X) ** 2).sum(axis=0)
         for ii in range(n_features):
             for jj in range(n_samples):
-                norm_cols_X[ii] += X[jj, ii] ** 2
+                norm2_cols_X[ii] += X[jj, ii] ** 2
 
         # R = Y - np.dot(X, W.T)
         for ii in range(n_samples):
@@ -704,7 +1152,7 @@ def enet_coordinate_descent_multi_task(double[::1, :] W, double l1_reg,
                 else:
                     ii = f_iter
 
-                if norm_cols_X[ii] == 0.0:
+                if norm2_cols_X[ii] == 0.0:
                     continue
 
                 # w_ii = W[:, ii] # Store previous value
@@ -725,9 +1173,9 @@ def enet_coordinate_descent_multi_task(double[::1, :] W, double l1_reg,
                 # nn = sqrt(np.sum(tmp ** 2))
                 nn = dnrm2(n_tasks, &tmp[0], 1)
 
-                # W[:, ii] = tmp * fmax(1. - l1_reg / nn, 0) / (norm_cols_X[ii] + l2_reg)
+                # W[:, ii] = tmp * fmax(1. - l1_reg / nn, 0) / (norm2_cols_X[ii] + l2_reg)
                 dcopy(n_tasks, &tmp[0], 1, W_ptr + ii * n_tasks, 1)
-                dscal(n_tasks, fmax(1. - l1_reg / nn, 0) / (norm_cols_X[ii] + l2_reg),
+                dscal(n_tasks, fmax(1. - l1_reg / nn, 0) / (norm2_cols_X[ii] + l2_reg),
                           W_ptr + ii * n_tasks, 1)
 
                 # if np.sum(W[:, ii] ** 2) != 0.0:  # can do better
