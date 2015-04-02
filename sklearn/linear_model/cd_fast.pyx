@@ -637,7 +637,7 @@ def sparse_enet_coordinate_descent(double[:] w,
     cdef UINT32_t rand_r_state_seed = rng.randint(0, RAND_R_MAX)
     cdef UINT32_t* rand_r_state = &rand_r_state_seed
     cdef bint center = False
-    cdef unsigned int n_active = n_features
+    cdef unsigned int n_active = 0
     cdef bint do_gap = False
 
     cdef double[:] Xistar = np.zeros(n_samples)
@@ -706,9 +706,13 @@ def sparse_enet_coordinate_descent(double[:] w,
                     else:
                         Xtymax = -Xty[ii]
         else:
+            n_active = 0
             for ii in range(n_features):
-                active_set[ii] = ii
-            n_active = n_features
+                if norm2_cols_X[ii] != 0.0:
+                    active_set[n_active] = ii
+                    n_active += 1
+                else:
+                    disabled[ii] = 1
 
         ### scaling tolerance
         # tol *= np.dot(y, y)
@@ -804,9 +808,6 @@ def sparse_enet_coordinate_descent(double[:] w,
                     ii = active_set[rand_int(n_active, rand_r_state)]
                 else:
                     ii = active_set[f_iter]
-
-                if norm2_cols_X[ii] == 0.0:
-                    continue
 
                 startptr = X_indptr[ii]
                 endptr = X_indptr[ii + 1]
