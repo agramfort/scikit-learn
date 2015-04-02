@@ -601,6 +601,7 @@ def sparse_enet_coordinate_descent(double[:] w,
 
     # initial value of the residuals
     cdef double[:] R = y.copy()
+    cdef double R_mean = np.mean(y)
 
     cdef double[:] X_T_R = np.zeros(n_features)
     cdef double[:] Xty = np.zeros(n_features)
@@ -617,7 +618,6 @@ def sparse_enet_coordinate_descent(double[:] w,
     cdef double d_w_ii
     cdef double X_mean_ii
 
-    cdef double R_sum
     cdef double y_sum
 
     cdef double normalize_sum
@@ -671,7 +671,7 @@ def sparse_enet_coordinate_descent(double[:] w,
 
             if center:
                 for jj in range(n_samples):
-                    R[jj] += X_mean_ii * w_ii
+                    R_mean -= X_mean_ii * w_ii
             startptr = endptr
 
         #norm of columns
@@ -819,12 +819,9 @@ def sparse_enet_coordinate_descent(double[:] w,
                     tmp += R[X_indices[jj]] * X_data[jj]
 
                 if center:
-                    R_sum = 0.0
-                    for jj in range(n_samples):
-                        R_sum += R[jj]
-                    tmp -= R_sum * X_mean_ii
+                    tmp -= R_mean * n_samples * X_mean_ii
 
-				tmp += norm2_cols_X[ii] * w[ii] # end tmp computation
+                tmp += norm2_cols_X[ii] * w[ii] # end tmp computation
 
                 if positive and tmp < 0.0:
                     w[ii] = 0.0
@@ -832,15 +829,14 @@ def sparse_enet_coordinate_descent(double[:] w,
                     w[ii] = fsign(tmp) * fmax(fabs(tmp) - alpha, 0) \
                             / (norm2_cols_X[ii] + beta)
 
-            	d_w_ii = w_ii - w[ii]
+                d_w_ii = w_ii - w[ii]
+
                 if w[ii] != w_ii:
                     # R +=  d_w_ii * X[:,ii] # Update residual
                     for jj in range(startptr, endptr):
                         R[X_indices[jj]] +=  X_data[jj] * d_w_ii
 
-                    if center:
-                        for jj in range(n_samples):
-                            R[jj] += X_mean_ii * d_w_ii
+                    R_mean += X_mean_ii * d_w_ii
 
                 # update the maximum absolute coefficient update
                 d_w_ii = fabs(d_w_ii)
