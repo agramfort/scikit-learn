@@ -382,6 +382,8 @@ def enet_coordinate_descent(np.ndarray[DOUBLE, ndim=1] w,
                                       alpha, beta, positive,
                                       <np.int32_t*>disabled.data, 0)
                     # return if we reached desired tolerance
+                    # XXX to do really?
+
                     if gap < tol:
                         done = True  # don't exit now to have good n_active
 
@@ -802,15 +804,7 @@ def sparse_enet_coordinate_descent(double[:] w,
                 w_ii = w[ii]  # Store previous value
                 X_mean_ii = X_mean[ii]
 
-                if w_ii != 0.0:
-                    # R += w_ii * X[:,ii]
-                    for jj in range(startptr, endptr):
-                        R[X_indices[jj]] += X_data[jj] * w_ii
-                    if center:
-                        for jj in range(n_samples):
-                            R[jj] -= X_mean_ii * w_ii
-
-                # tmp = (X[:,ii] * R).sum()
+                # tmp = (X[:,ii] * R).sum() + norm2_cols_X[ii] * w[ii]
                 tmp = 0.0
                 for jj in range(startptr, endptr):
                     tmp += R[X_indices[jj]] * X_data[jj]
@@ -821,23 +815,26 @@ def sparse_enet_coordinate_descent(double[:] w,
                         R_sum += R[jj]
                     tmp -= R_sum * X_mean_ii
 
+				tmp += norm2_cols_X[ii] * w[ii] # end tmp computation
+
                 if positive and tmp < 0.0:
                     w[ii] = 0.0
                 else:
                     w[ii] = fsign(tmp) * fmax(fabs(tmp) - alpha, 0) \
                             / (norm2_cols_X[ii] + beta)
 
-                if w[ii] != 0.0:
-                    # R -=  w[ii] * X[:,ii] # Update residual
+            	d_w_ii = w_ii - w[ii]
+                if w[ii] != w_ii:
+                    # R +=  d_w_ii * X[:,ii] # Update residual
                     for jj in range(startptr, endptr):
-                        R[X_indices[jj]] -= X_data[jj] * w[ii]
+                        R[X_indices[jj]] +=  X_data[jj] * d_w_ii
 
                     if center:
                         for jj in range(n_samples):
-                            R[jj] += X_mean_ii * w[ii]
+                            R[jj] += X_mean_ii * d_w_ii
 
                 # update the maximum absolute coefficient update
-                d_w_ii = fabs(w[ii] - w_ii)
+                d_w_ii = fabs(d_w_ii)
                 if d_w_ii > d_w_max:
                     d_w_max = d_w_ii
 
