@@ -927,7 +927,7 @@ def _path_residuals(X, y, train, test, path, path_params, alphas=None,
     # Do the ordering and type casting here, as if it is done in the path,
     # X is copied and a reference is kept here
     X_train = check_array(X_train, 'csc', dtype=dtype, order=X_order)
-    alphas, coefs, _, _ = path(X_train, y_train, **path_params)
+    alphas, coefs, _ = path(X_train, y_train, **path_params)
     del X_train, y_train
 
     if y.ndim == 1:

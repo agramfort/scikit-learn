@@ -177,22 +177,25 @@ cdef double duality_gap( # Data
     # R_norm2 = np.dot(R, R)
     R_norm2 = ddot(n_samples, R_data, 1, R_data, 1)
 
-    if positive:
-        dual_norm_XtA = max(n_features, XtA_data)
+    if alpha == 0:
+        dual_scaling[0] = 1
     else:
-        dual_norm_XtA = abs_max(n_features, XtA_data)
-
-    if dual_norm_XtA <= 0:
-        if R_norm2 == 0:
-            dual_scaling[0] = 1. / alpha
+        if positive:
+            dual_norm_XtA = max(n_features, XtA_data)
         else:
-            dual_scaling[0] = yTA / R_norm2 / alpha
-    elif positive:
-        dual_scaling[0] = fmin(yTA / (alpha * R_norm2),
-                             1. / dual_norm_XtA)
-    else:
-        dual_scaling[0] = fmin(fmax(yTA / (alpha * R_norm2), -1. / dual_norm_XtA),
-                           1. / dual_norm_XtA)
+            dual_norm_XtA = abs_max(n_features, XtA_data)
+
+        if dual_norm_XtA <= 0:
+            if R_norm2 == 0:
+                dual_scaling[0] = 1. / alpha
+            else:
+                dual_scaling[0] = yTA / R_norm2 / alpha
+        elif positive:
+            dual_scaling[0] = fmin(yTA / (alpha * R_norm2),
+                                 1. / dual_norm_XtA)
+        else:
+            dual_scaling[0] = fmin(fmax(yTA / (alpha * R_norm2), -1. / dual_norm_XtA),
+                               1. / dual_norm_XtA)
 
     dual_scaling[0] = 1. / dual_scaling[0]
 
@@ -542,10 +545,23 @@ cdef double sparse_duality_gap(unsigned int n_samples,
     # R_norm2 = np.dot(R, R)
     R_norm2 = ddot(n_samples, <DOUBLE*>&R[0], 1, <DOUBLE*>&R[0], 1)
 
-    dual_scaling[0] = fmin(fmax(yTA / (alpha * R_norm2), -1. / dual_norm_XtA),
-                           1. / dual_norm_XtA)
+    if alpha == 0:
+        dual_scaling[0] = 1
+    else:
+        if dual_norm_XtA <= 0:
+            if R_norm2 == 0:
+                dual_scaling[0] = 1. / alpha
+            else:
+                dual_scaling[0] = yTA / R_norm2 / alpha
+        elif positive:
+            dual_scaling[0] = fmin(yTA / (alpha * R_norm2),
+                                 1. / dual_norm_XtA)
+        else:
+            dual_scaling[0] = fmin(fmax(yTA / (alpha * R_norm2), -1. / dual_norm_XtA),
+                               1. / dual_norm_XtA)
 
     dual_scaling[0] = 1. / dual_scaling[0]
+
     # w_norm2 = np.dot(w, w)
     if beta > 0:
         w_norm2 = ddot(n_features, <DOUBLE*>&w[0], 1, <DOUBLE*>&w[0], 1)
@@ -619,6 +635,7 @@ def sparse_enet_coordinate_descent(double[:] w,
     cdef double X_mean_ii
 
     cdef double y_sum
+    cdef double R_sum
 
     cdef double normalize_sum
     cdef double gap = tol + 1.0
@@ -671,7 +688,8 @@ def sparse_enet_coordinate_descent(double[:] w,
 
             if center:
                 for jj in range(n_samples):
-                    R_mean -= X_mean_ii * w_ii
+                    R[jj] += X_mean_ii * w_ii
+                # R_mean -= X_mean_ii * w_ii
             startptr = endptr
 
         #norm of columns
@@ -820,7 +838,11 @@ def sparse_enet_coordinate_descent(double[:] w,
                     tmp += R[X_indices[jj]] * X_data[jj]
 
                 if center:
-                    tmp -= R_mean * n_samples * X_mean_ii
+                    R_sum = 0.0
+                    for jj in range(n_samples):
+                        R_sum += R[jj]
+                    tmp -= R_sum * X_mean_ii
+                    # tmp -= R_mean * n_samples * X_mean_ii
 
                 tmp += norm2_cols_X[ii] * w[ii] # end tmp computation
 
@@ -830,14 +852,17 @@ def sparse_enet_coordinate_descent(double[:] w,
                     w[ii] = fsign(tmp) * fmax(fabs(tmp) - alpha, 0) \
                             / (norm2_cols_X[ii] + beta)
 
-                d_w_ii = w_ii - w[ii]
+                d_w_ii = w[ii] - w_ii
 
                 if w[ii] != w_ii:
                     # R +=  d_w_ii * X[:,ii] # Update residual
                     for jj in range(startptr, endptr):
-                        R[X_indices[jj]] +=  X_data[jj] * d_w_ii
-
-                    R_mean += X_mean_ii * d_w_ii
+                        R[X_indices[jj]] -=  X_data[jj] * d_w_ii
+                        
+                    if center:
+                        for jj in range(n_samples):
+                            R[jj] += X_mean_ii * d_w_ii
+                        # R_mean += X_mean_ii * d_w_ii
 
                 # update the maximum absolute coefficient update
                 d_w_ii = fabs(d_w_ii)
