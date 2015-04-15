@@ -215,38 +215,6 @@ cdef double duality_gap( # Data
     return gap
 
 
-
-# Function to compute the primal value
-cdef double primal_value( # Data
-                        unsigned int n_samples,
-                        unsigned int n_features,
-                        DOUBLE * R_data,
-                        DOUBLE * w_data,
-                        # Parameters
-                        double alpha,
-                        double beta,
-                        ) nogil:
-
-    cdef double R_norm2
-    cdef double w_norm2 = 0.
-    cdef double l1_norm
-    cdef double fval
-    cdef unsigned int i
-
-    # R_norm2 = np.dot(R, R)
-    R_norm2 = ddot(n_samples, R_data, 1, R_data, 1)
-
-    # w_norm2 = np.dot(w, w)
-    if beta > 0.:
-        w_norm2 = ddot(n_features, w_data, 1, w_data, 1)
-
-    l1_norm = dasum(n_features, w_data, 1)
-
-    fval = 0.5 * R_norm2 + alpha * l1_norm + 0.5 * beta * w_norm2
-
-    return fval
-
-
 @cython.boundscheck(False)
 @cython.wraparound(False)
 @cython.cdivision(True)
@@ -464,14 +432,16 @@ def enet_coordinate_descent(np.ndarray[DOUBLE, ndim=1] w,
                     w[ii] = (fsign(tmp) * fmax(fabs(tmp) - alpha, 0)
                              / (norm2_cols_X[ii] + beta))
 
+                d_w_ii = w[ii] - w_ii
+                
                 if w[ii] != w_ii:
                     # R -=  (w[ii]-w_ii) * X[:,ii] # Update residual
-                    daxpy(n_samples, -w[ii] + w_ii,
+                    daxpy(n_samples, -d_w_ii,
                           <DOUBLE*>(X.data + ii * n_samples * sizeof(DOUBLE)),
                           1, <DOUBLE*>R.data, 1)
 
                 # update the maximum absolute coefficient update
-                d_w_ii = fabs(w[ii] - w_ii)
+                d_w_ii = fabs(d_w_ii)
                 if d_w_ii > d_w_max:
                     d_w_max = d_w_ii
 
