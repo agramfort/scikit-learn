@@ -6,10 +6,10 @@ import traceback
 import inspect
 import pickle
 from copy import deepcopy
+import struct
 
 import numpy as np
 from scipy import sparse
-import struct
 
 from sklearn.externals.six.moves import zip
 from sklearn.externals.joblib import hash
@@ -68,7 +68,7 @@ def _yield_non_meta_checks(name, Estimator):
         yield check_estimators_nan_inf
 
     if name not in ['GaussianProcess']:
-        # FIXME!
+        # XXX FIXME!
         # in particular GaussianProcess!
         yield check_estimators_overwrite_params
     if hasattr(Estimator, 'sparsify'):
@@ -114,6 +114,7 @@ def _yield_regressor_checks(name, Regressor):
     # give the same answer as before.
     yield check_regressors_pickle
     if name != 'CCA':
+        # XXX fix CCA
         # check that the regressor handles int input
         yield check_regressors_int
     # Test if NotFittedError is raised
@@ -144,7 +145,6 @@ def _yield_clustering_checks(name, Clusterer):
 
 
 def _yield_all_checks(name, Estimator):
-    #yield check_parameters_default_constructible, name, Estimator
     for check in _yield_non_meta_checks(name, Estimator):
         yield check
     if issubclass(Estimator, ClassifierMixin):
@@ -990,7 +990,7 @@ def check_regressors_no_decision_function(name, Regressor):
 
     set_fast_parameters(regressor)
     if hasattr(regressor, "n_components"):
-        # FIXME CCA, PLS is not robust to rank 1 effects
+        # XXX FIXME CCA, PLS is not robust to rank 1 effects
         regressor.n_components = 1
 
     regressor.fit(X, y)
@@ -1011,7 +1011,7 @@ def check_class_weight_classifiers(name, Classifier):
         raise SkipTest
     if name.endswith("NB"):
         # NaiveBayes classifiers have a somewhat different interface.
-        # FIXME SOON!
+        # XXX FIXME SOON!
         raise SkipTest
 
     for n_centers in [2, 3]:

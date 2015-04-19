@@ -1,8 +1,9 @@
-import scipy.sparse as sp
-import numpy as np
 import sys
-from sklearn.externals.six.moves import cStringIO as StringIO
 
+import numpy as np
+import scipy.sparse as sp
+
+from sklearn.externals.six.moves import cStringIO as StringIO
 from sklearn.base import BaseEstimator, ClassifierMixin
 from sklearn.utils.testing import assert_raises_regex, assert_true
 from sklearn.utils.estimator_checks import check_estimator
