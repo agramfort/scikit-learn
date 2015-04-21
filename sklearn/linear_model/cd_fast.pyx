@@ -484,7 +484,7 @@ cdef double sparse_duality_gap(unsigned int n_samples,
     cdef double l1_norm
     cdef double const
     cdef double gap
-    #cdef double R_sum
+    cdef double y_sum
     cdef unsigned int ii
     cdef unsigned int jj
     cdef double yTA
@@ -514,7 +514,10 @@ cdef double sparse_duality_gap(unsigned int n_samples,
         dual_norm_XtA = abs_max(n_features, &XtA[0])
 
     yTA = ddot(n_samples, <DOUBLE*>&y[0], 1, <DOUBLE*>&R[0], 1)
-    yTA -= dsum(n_samples, <DOUBLE*>&y[0]) * R_mean
+    y_sum = 0
+    for jj in range(n_samples):
+        y_sum += y[jj]
+    yTA -= y_sum * R_mean
     # R_norm2 = np.dot(R, R)
     R_norm2 = ddot(n_samples, <DOUBLE*>&R[0], 1, <DOUBLE*>&R[0], 1)
     R_norm2 -= n_samples * R_mean**2
@@ -610,7 +613,6 @@ def sparse_enet_coordinate_descent(double[:] w,
 
     cdef double y_sum
     cdef double R_sum
-    cdef double R_mean = 0
 
     cdef double normalize_sum
     cdef double gap = tol + 1.0
@@ -740,7 +742,7 @@ def sparse_enet_coordinate_descent(double[:] w,
                     # or if last iteration 
                     # XXX to erase this one?
                     gap = sparse_duality_gap(n_samples, n_features, X_data, X_indices,
-                                             X_indptr, X_mean, y, R, Rmean, w,
+                                             X_indptr, X_mean, y, R, R_mean, w,
                                              XtA, X_T_R, dual_scaling,
                                              alpha, beta, positive, center,
                                              disabled, 0)
