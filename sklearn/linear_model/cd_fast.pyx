@@ -462,7 +462,7 @@ cdef double sparse_duality_gap(unsigned int n_samples,
                        double[:] X_mean,
                        double[:] y,
                        double[:] R,
-                       double R_mean,
+                       double R_shift,
                        double[:] w,
                        # Variables intended to be modified
                        double[:] XtA,
@@ -479,22 +479,25 @@ cdef double sparse_duality_gap(unsigned int n_samples,
                        ) nogil:
 
     cdef double R_norm2
+    cdef double R_sum = 0.
     cdef double w_norm2
     cdef double y_norm2
     cdef double l1_norm
     cdef double const
     cdef double gap
-    cdef double y_sum
+    cdef double y_sum = 0.
     cdef unsigned int ii
     cdef unsigned int jj
     cdef double yTA
     cdef double dual_norm_XtA
 
     # sparse X.T * R product for non-disabled features
-    #if center:
-    #    R_sum = 0.0
-    #    for jj in range(n_samples):
-    #        R_sum += R[jj]
+    if center:
+        y_sum = 0.
+        for jj in range(n_samples):
+            y_sum += y[jj]
+        # Rtot_sum = R_sum - n_samples * R_shift  is a constant when columns are centered
+        R_sum = y_sum + n_samples * R_shift  
 
     for ii in range(n_features):
         if (n_disabled == 0 or disabled[ii] == 0):
@@ -502,8 +505,7 @@ cdef double sparse_duality_gap(unsigned int n_samples,
             for jj in range(X_indptr[ii], X_indptr[ii + 1]):
                 X_T_R[ii] += X_data[jj] * R[X_indices[jj]]
             if center:
-                #X_T_R[ii] -= X_mean[ii] * R_sum
-                X_T_R[ii] += n_samples * R_mean * X_mean[ii]
+                X_T_R[ii] -= X_mean[ii] * R_sum
             XtA[ii] = X_T_R[ii] - beta * w[ii]
         else:
             XtA[ii] = 0.
@@ -514,13 +516,13 @@ cdef double sparse_duality_gap(unsigned int n_samples,
         dual_norm_XtA = abs_max(n_features, &XtA[0])
 
     yTA = ddot(n_samples, <DOUBLE*>&y[0], 1, <DOUBLE*>&R[0], 1)
-    y_sum = 0
-    for jj in range(n_samples):
-        y_sum += y[jj]
-    yTA -= y_sum * R_mean
+
+    if center:
+        yTA -= y_sum * R_shift
     # R_norm2 = np.dot(R, R)
     R_norm2 = ddot(n_samples, <DOUBLE*>&R[0], 1, <DOUBLE*>&R[0], 1)
-    R_norm2 -= n_samples * R_mean**2
+    if center:
+        R_norm2 += n_samples * R_shift**2 - 2 * R_sum * R_shift
 
     if alpha == 0:
         dual_scaling[0] = 1
@@ -593,8 +595,9 @@ def sparse_enet_coordinate_descent(double[:] w,
     cdef unsigned int n_tasks = y.strides[0] / sizeof(DOUBLE)
 
     # initial value of the residuals
+    # The total residuals are: Rtot = R - R_shift
     cdef double[:] R = y.copy()
-    cdef double R_mean = np.mean(y)
+    cdef double R_shift = 0
 
     cdef double[:] X_T_R = np.zeros(n_features)
     cdef double[:] Xty = np.zeros(n_features)
@@ -613,6 +616,7 @@ def sparse_enet_coordinate_descent(double[:] w,
 
     cdef double y_sum
     cdef double R_sum
+    cdef double Rtot_sum
 
     cdef double normalize_sum
     cdef double gap = tol + 1.0
@@ -649,6 +653,12 @@ def sparse_enet_coordinate_descent(double[:] w,
                 center = True
                 break
 
+        if center:
+            y_sum = 0.0
+            for jj in range(n_samples):
+                y_sum += y[jj]
+            Rtot_sum = y_sum
+
         # R = y - np.dot(X, w)
         for ii in range(n_features):
             X_mean_ii = X_mean[ii]
@@ -666,7 +676,7 @@ def sparse_enet_coordinate_descent(double[:] w,
             if center:
                 #for jj in range(n_samples):
                 #    R[jj] += X_mean_ii * w_ii
-                R_mean -= X_mean_ii * w_ii
+                R_shift -= X_mean_ii * w_ii
             startptr = endptr
 
         #norm of columns
@@ -681,11 +691,6 @@ def sparse_enet_coordinate_descent(double[:] w,
             # compute argmax_i abs(X_i^T y)
 
             # sparse X.T * y
-            if center:
-                y_sum = 0.0
-                for jj in range(n_samples):
-                    y_sum += y[jj]
-
             for ii in range(n_features):
                 Xty[ii] = 0.0
                 for jj in range(X_indptr[ii], X_indptr[ii + 1]):
@@ -732,7 +737,7 @@ def sparse_enet_coordinate_descent(double[:] w,
 
             if do_gap and screening > 0:  # Screening
                 gap = sparse_duality_gap(n_samples, n_features, X_data, X_indices,
-                                         X_indptr, X_mean, y, R, R_mean, w,
+                                         X_indptr, X_mean, y, R, R_shift, w,
                                          XtA, X_T_R, dual_scaling,
                                          alpha, beta, positive, center,
                                          disabled, n_features - n_active)
@@ -742,7 +747,7 @@ def sparse_enet_coordinate_descent(double[:] w,
                     # or if last iteration 
                     # XXX to erase this one?
                     gap = sparse_duality_gap(n_samples, n_features, X_data, X_indices,
-                                             X_indptr, X_mean, y, R, R_mean, w,
+                                             X_indptr, X_mean, y, R, R_shift, w,
                                              XtA, X_T_R, dual_scaling,
                                              alpha, beta, positive, center,
                                              disabled, 0)
@@ -753,7 +758,7 @@ def sparse_enet_coordinate_descent(double[:] w,
 
             if do_gap and screening == 0:  # Screening
                 gap = sparse_duality_gap(n_samples, n_features, X_data, X_indices,
-                                         X_indptr, X_mean, y, R, R_mean, w,
+                                         X_indptr, X_mean, y, R, R_shift, w,
                                          XtA, X_T_R, dual_scaling,
                                          alpha, beta, positive, center,
                                          disabled, 0)
@@ -809,17 +814,15 @@ def sparse_enet_coordinate_descent(double[:] w,
                 w_ii = w[ii]  # Store previous value
                 X_mean_ii = X_mean[ii]
 
-                # tmp = (X[:,ii] * R).sum() + norm2_cols_X[ii] * w[ii]
+                # tmp = (X[:,ii] * R).sum() - X_mean_ii * R_sum + norm2_cols_X[ii] * w[ii]
                 tmp = 0.0
                 for jj in range(startptr, endptr):
                     tmp += R[X_indices[jj]] * X_data[jj]
 
                 if center:
-                    #R_sum = 0.0
-                    #for jj in range(n_samples):
-                    #    R_sum += R[jj]
-                    #tmp -= R_sum * X_mean_ii
-                    tmp -= R_mean * n_samples * X_mean_ii
+                    # tmp -= R_sum * X_mean_ii
+                    # Note that Rtot_sum is a constant when the columns are centered
+                    tmp -= (Rtot_sum + n_samples*R_shift) * X_mean_ii
 
                 tmp += norm2_cols_X[ii] * w[ii] # end tmp computation
 
@@ -837,9 +840,7 @@ def sparse_enet_coordinate_descent(double[:] w,
                         R[X_indices[jj]] -=  X_data[jj] * d_w_ii
                         
                     if center:
-                        #for jj in range(n_samples):
-                        #    R[jj] += X_mean_ii * d_w_ii
-                        R_mean += X_mean_ii * d_w_ii
+                        R_shift -= X_mean_ii * d_w_ii
 
                 # update the maximum absolute coefficient update
                 d_w_ii = fabs(d_w_ii)
