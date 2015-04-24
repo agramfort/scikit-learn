@@ -166,17 +166,17 @@ def test_enet_screening():
                                alpha=0.05, max_iter=max_iter).fit(X, y)
     clf_no_screening = ElasticNet(screening=0, l1_ratio=1, tol=1e-8,
                                   alpha=0.05, max_iter=max_iter).fit(X, y)
-    assert_array_almost_equal(clf_no_screening.coef_, clf_screening.coef_, 6)
+    assert_array_almost_equal(clf_no_screening.coef_, clf_screening.coef_, 4)
     assert_true(clf_no_screening.dual_gap_ < 1e-5)
-    assert_true(clf_screening.dual_gap_.dual_gap_ < 1e-5)
+    assert_true(clf_screening.dual_gap_ < 1e-5)
 
     clf_screening = ElasticNet(screening=11, l1_ratio=0.5, tol=1e-8,
                                alpha=0.05, max_iter=max_iter).fit(X, y)
     clf_no_screening = ElasticNet(screening=0, l1_ratio=0.5, tol=1e-8,
                                   alpha=0.05, max_iter=max_iter).fit(X, y)
-    assert_array_almost_equal(clf_no_screening.coef_, clf_screening.coef_, 6)
+    assert_array_almost_equal(clf_no_screening.coef_, clf_screening.coef_, 4)
     assert_true(clf_no_screening.dual_gap_ < 1e-5)
-    assert_true(clf_screening.dual_gap_.dual_gap_ < 1e-5)
+    assert_true(clf_screening.dual_gap_ < 1e-5)
 
 
 def test_lasso_cv():
@@ -392,7 +392,7 @@ def test_enet_multitarget():
     n_targets = 3
     X, y, _, _ = build_dataset(n_samples=10, n_features=8,
                                n_informative_features=10, n_targets=n_targets)
-    estimator = ElasticNet(alpha=0.01, fit_intercept=True)
+    estimator = ElasticNet(alpha=0.01, fit_intercept=True, precompute='auto')
     estimator.fit(X, y)
     coef, intercept, dual_gap = (estimator.coef_, estimator.intercept_,
                                  estimator.dual_gap_)

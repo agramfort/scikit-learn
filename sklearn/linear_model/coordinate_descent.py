@@ -583,7 +583,7 @@ class ElasticNet(LinearModel, RegressorMixin):
                  normalize=False, precompute=False, max_iter=1000,
                  copy_X=True, tol=1e-4, warm_start=False, positive=False,
                  random_state=None, selection='cyclic',
-                 screening=0):
+                 screening=10):
         self.alpha = alpha
         self.l1_ratio = l1_ratio
         self.coef_ = None
@@ -840,7 +840,7 @@ class Lasso(ElasticNet):
                  precompute=False, copy_X=True, max_iter=1000,
                  tol=1e-4, warm_start=False, positive=False,
                  random_state=None, selection='cyclic',
-                 screening=0):
+                 screening=10):
         super(Lasso, self).__init__(
             alpha=alpha, l1_ratio=1.0, fit_intercept=fit_intercept,
             normalize=normalize, precompute=precompute, copy_X=copy_X,

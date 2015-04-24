@@ -121,7 +121,7 @@ def test_enet_toy_explicit_sparse_input():
     assert_almost_equal(clf.dual_gap_, 0)
 
 
-def make_sparse_data(n_samples=100, n_features=100, n_informative=10, seed=42,
+def make_sparse_data(n_samples=80, n_features=100, n_informative=10, seed=42,
                      positive=False, n_targets=1):
     random_state = np.random.RandomState(seed)
 
@@ -264,12 +264,14 @@ def test_enet_multitarget():
     n_targets = 3
     X, y = make_sparse_data(n_targets=n_targets)
 
-    estimator = ElasticNet(alpha=0.01, fit_intercept=True, precompute=None)
+    estimator = ElasticNet(alpha=0.01, tol=1e-8, fit_intercept=True,
+                            precompute=False)
     # XXX: There is a bug when precompute is not None!
     estimator.fit(X, y)
     coef, intercept, dual_gap = (estimator.coef_,
                                  estimator.intercept_,
                                  estimator.dual_gap_)
+    print estimator.coef_.shape
 
     for k in range(n_targets):
         estimator.fit(X, y[:, k])
