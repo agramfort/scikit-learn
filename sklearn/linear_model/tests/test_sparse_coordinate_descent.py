@@ -271,7 +271,6 @@ def test_enet_multitarget():
     coef, intercept, dual_gap = (estimator.coef_,
                                  estimator.intercept_,
                                  estimator.dual_gap_)
-    print estimator.coef_.shape
 
     for k in range(n_targets):
         estimator.fit(X, y[:, k])
