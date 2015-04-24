@@ -145,6 +145,7 @@ def make_sparse_data(n_samples=100, n_features=100, n_informative=10, seed=42,
         y = np.ravel(y)
     return X, y
 
+
 def _test_sparse_screening_enet_not_as_toy_dataset(alpha,
                                                    fit_intercept, positive):
     n_samples, n_features, max_iter = 100, 200, 1000
@@ -157,20 +158,19 @@ def _test_sparse_screening_enet_not_as_toy_dataset(alpha,
     y_train, y_test = y[n_samples // 2:], y[:n_samples // 2]
 
     s_clf = ElasticNet(alpha=alpha, l1_ratio=0.8, fit_intercept=fit_intercept,
-                       max_iter=max_iter, tol=1e-7, positive=positive,
+                       max_iter=max_iter, tol=1e-8, positive=positive,
                        warm_start=True)
     s_clf.fit(X_train, y_train)
-
-    assert_almost_equal(s_clf.dual_gap_, 0, 4)
 
     # check the convergence is the same as screened version
     s_screen_clf = ElasticNet(alpha=alpha, l1_ratio=0.8,
                               fit_intercept=fit_intercept,
-                              max_iter=max_iter, tol=1e-7, positive=positive,
+                              max_iter=max_iter, tol=1e-8, positive=positive,
                               warm_start=True, screening=12)
     s_screen_clf.fit(X_train.toarray(), y_train)
 
-    assert_almost_equal(s_screen_clf.dual_gap_, s_clf.dual_gap_, 4)
+    assert_true(s_clf.dual_gap_ < 1e-5)
+    assert_true(s_screen_clf.dual_gap_ < 1e-5)
 
     assert_almost_equal(s_clf.coef_, s_screen_clf.coef_, 5)
     assert_almost_equal(s_clf.intercept_, s_screen_clf.intercept_, 5)

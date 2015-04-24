@@ -163,20 +163,20 @@ def test_enet_screening():
     max_iter = 500
 
     clf_screening = ElasticNet(screening=11, l1_ratio=1, tol=1e-8,
-                          alpha=0.05, max_iter=max_iter).fit(X, y)
+                               alpha=0.05, max_iter=max_iter).fit(X, y)
     clf_no_screening = ElasticNet(screening=0, l1_ratio=1, tol=1e-8,
-                             alpha=0.05, max_iter=max_iter).fit(X, y)
-    assert_array_almost_equal(clf_no_screening.coef_, clf_screening.coef_, 4)
-    assert_almost_equal(clf_no_screening.dual_gap_,
-                              clf_screening.dual_gap_, 4)
+                                  alpha=0.05, max_iter=max_iter).fit(X, y)
+    assert_array_almost_equal(clf_no_screening.coef_, clf_screening.coef_, 6)
+    assert_true(clf_no_screening.dual_gap_ < 1e-5)
+    assert_true(clf_screening.dual_gap_.dual_gap_ < 1e-5)
 
     clf_screening = ElasticNet(screening=11, l1_ratio=0.5, tol=1e-8,
-                          alpha=0.05, max_iter=max_iter).fit(X, y)
+                               alpha=0.05, max_iter=max_iter).fit(X, y)
     clf_no_screening = ElasticNet(screening=0, l1_ratio=0.5, tol=1e-8,
-                             alpha=0.05, max_iter=max_iter).fit(X, y)
-    assert_array_almost_equal(clf_no_screening.coef_, clf_screening.coef_, 4)
-    assert_almost_equal(clf_no_screening.dual_gap_,
-                              clf_screening.dual_gap_, 4)
+                                  alpha=0.05, max_iter=max_iter).fit(X, y)
+    assert_array_almost_equal(clf_no_screening.coef_, clf_screening.coef_, 6)
+    assert_true(clf_no_screening.dual_gap_ < 1e-5)
+    assert_true(clf_screening.dual_gap_.dual_gap_ < 1e-5)
 
 
 def test_lasso_cv():
@@ -378,7 +378,7 @@ def test_enet_cv_positive_constraint():
 def test_multi_task_lasso_and_enet():
     X, y, X_test, y_test = build_dataset()
     Y = np.c_[y, y]
-    #Y_test = np.c_[y_test, y_test]
+    # Y_test = np.c_[y_test, y_test]
     clf = MultiTaskLasso(alpha=1, tol=1e-8).fit(X, Y)
     assert_true(0 < clf.dual_gap_ < 1e-5)
     assert_array_almost_equal(clf.coef_[0], clf.coef_[1])
