@@ -154,6 +154,31 @@ def build_dataset(n_samples=50, n_features=200, n_informative_features=10,
     return X, y, X_test, y_test
 
 
+def test_enet_screening():
+    """
+    test that the screening for coordinate descent ElasticNet provides the same
+    results as no screening (original version)
+    """
+    X, y, X_test, y_test = build_dataset()
+    max_iter = 500
+
+    clf_screening = ElasticNet(screening=11, l1_ratio=1, tol=1e-8,
+                          alpha=0.05, max_iter=max_iter).fit(X, y)
+    clf_no_screening = ElasticNet(screening=0, l1_ratio=1, tol=1e-8,
+                             alpha=0.05, max_iter=max_iter).fit(X, y)
+    assert_array_almost_equal(clf_no_screening.coef_, clf_screening.coef_, 4)
+    assert_almost_equal(clf_no_screening.dual_gap_,
+                              clf_screening.dual_gap_, 4)
+
+    clf_screening = ElasticNet(screening=11, l1_ratio=0.5, tol=1e-8,
+                          alpha=0.05, max_iter=max_iter).fit(X, y)
+    clf_no_screening = ElasticNet(screening=0, l1_ratio=0.5, tol=1e-8,
+                             alpha=0.05, max_iter=max_iter).fit(X, y)
+    assert_array_almost_equal(clf_no_screening.coef_, clf_screening.coef_, 4)
+    assert_almost_equal(clf_no_screening.dual_gap_,
+                              clf_screening.dual_gap_, 4)
+
+
 def test_lasso_cv():
     X, y, X_test, y_test = build_dataset()
     max_iter = 150

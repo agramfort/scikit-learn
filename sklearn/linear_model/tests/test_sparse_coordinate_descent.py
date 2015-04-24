@@ -145,6 +145,51 @@ def make_sparse_data(n_samples=100, n_features=100, n_informative=10, seed=42,
         y = np.ravel(y)
     return X, y
 
+def _test_sparse_screening_enet_not_as_toy_dataset(alpha,
+                                                   fit_intercept, positive):
+    n_samples, n_features, max_iter = 100, 200, 1000
+    n_informative = 10
+
+    X, y = make_sparse_data(n_samples, n_features, n_informative,
+                            positive=positive)
+
+    X_train, X_test = X[n_samples // 2:], X[:n_samples // 2]
+    y_train, y_test = y[n_samples // 2:], y[:n_samples // 2]
+
+    s_clf = ElasticNet(alpha=alpha, l1_ratio=0.8, fit_intercept=fit_intercept,
+                       max_iter=max_iter, tol=1e-7, positive=positive,
+                       warm_start=True)
+    s_clf.fit(X_train, y_train)
+
+    assert_almost_equal(s_clf.dual_gap_, 0, 4)
+
+    # check the convergence is the same as screened version
+    s_screen_clf = ElasticNet(alpha=alpha, l1_ratio=0.8,
+                              fit_intercept=fit_intercept,
+                              max_iter=max_iter, tol=1e-7, positive=positive,
+                              warm_start=True, screening=12)
+    s_screen_clf.fit(X_train.toarray(), y_train)
+
+    assert_almost_equal(s_screen_clf.dual_gap_, s_clf.dual_gap_, 4)
+
+    assert_almost_equal(s_clf.coef_, s_screen_clf.coef_, 5)
+    assert_almost_equal(s_clf.intercept_, s_screen_clf.intercept_, 5)
+
+
+def test_sparse_screening_enet_not_as_toy_dataset():
+    _test_sparse_screening_enet_not_as_toy_dataset(alpha=0.1,
+                                                   fit_intercept=False,
+                                                   positive=False)
+    _test_sparse_screening_enet_not_as_toy_dataset(alpha=0.1,
+                                                   fit_intercept=True,
+                                                   positive=False)
+    _test_sparse_screening_enet_not_as_toy_dataset(alpha=1e-3,
+                                                   fit_intercept=False,
+                                                   positive=True)
+    _test_sparse_screening_enet_not_as_toy_dataset(alpha=1e-3,
+                                                   fit_intercept=True,
+                                                   positive=True)
+
 
 def _test_sparse_enet_not_as_toy_dataset(alpha, fit_intercept, positive):
     n_samples, n_features, max_iter = 100, 100, 1000
