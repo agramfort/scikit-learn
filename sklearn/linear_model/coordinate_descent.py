@@ -652,6 +652,8 @@ class ElasticNet(LinearModel, RegressorMixin):
 
         if n_targets > 1:  # make y data contiguous in memory
             y = np.asfortranarray(y)
+            if Xy is not None:
+                Xy = np.asfortranarray(Xy)
 
         if self.selection not in ['cyclic', 'random']:
             raise ValueError("selection should be either random or cyclic.")
