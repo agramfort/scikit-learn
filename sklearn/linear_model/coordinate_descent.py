@@ -972,7 +972,7 @@ class LinearModelCV(six.with_metaclass(ABCMeta, LinearModel)):
                  normalize=False, precompute='auto', max_iter=1000, tol=1e-4,
                  copy_X=True, cv=None, verbose=False, n_jobs=1,
                  positive=False, random_state=None, selection='cyclic',
-                 screening=0, screening_freq=30):
+                 screening=10):
         self.eps = eps
         self.n_alphas = n_alphas
         self.alphas = alphas
@@ -989,7 +989,6 @@ class LinearModelCV(six.with_metaclass(ABCMeta, LinearModel)):
         self.random_state = random_state
         self.selection = selection
         self.screening = screening
-        self.screening_freq = screening_freq
 
     def fit(self, X, y):
         """Fit linear model with coordinate descent
@@ -1268,14 +1267,14 @@ class LassoCV(LinearModelCV, RegressorMixin):
                  normalize=False, precompute='auto', max_iter=1000, tol=1e-4,
                  copy_X=True, cv=None, verbose=False, n_jobs=1,
                  positive=False, random_state=None, selection='cyclic',
-                 screening=0, screening_freq=30):
+                 screening=10):
         super(LassoCV, self).__init__(
             eps=eps, n_alphas=n_alphas, alphas=alphas,
             fit_intercept=fit_intercept, normalize=normalize,
             precompute=precompute, max_iter=max_iter, tol=tol, copy_X=copy_X,
             cv=cv, verbose=verbose, n_jobs=n_jobs, positive=positive,
             random_state=random_state, selection=selection,
-            screening=screening, screening_freq=screening_freq)
+            screening=screening)
 
 
 class ElasticNetCV(LinearModelCV, RegressorMixin):
