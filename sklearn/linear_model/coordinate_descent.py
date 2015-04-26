@@ -424,8 +424,10 @@ def enet_path(X, y, l1_ratio=0.5, eps=1e-3, n_alphas=100, alphas=None,
                 tol, rng, random, positive)
             # XXX screening is not performed in gram/precomputed case
         elif precompute is False:
-            l1_reg_prev = 0. if i == 0 else alphas[i - 1] * l1_ratio * n_samples
-            l2_reg_prev = 0. if i == 0 else alphas[i - 1] * (1. - l1_ratio) * n_samples
+            l1_reg_prev = l2_reg_prev = 0.
+            if i > 0:
+                l1_reg_prev = alphas[i - 1] * l1_ratio * n_samples
+                l2_reg_prev = alphas[i - 1] * (1. - l1_ratio) * n_samples
             model = cd_fast.enet_coordinate_descent(
                 coef_, l1_reg, l2_reg, X, y, max_iter, tol, rng, random,
                 positive, l1_reg_prev, l2_reg_prev, screening)
@@ -647,6 +649,9 @@ class ElasticNet(LinearModel, RegressorMixin):
 
         n_samples, n_features = X.shape
         n_targets = y.shape[1]
+
+        if n_targets > 1:  # make y data contiguous in memory
+            y = np.asfortranarray(y)
 
         if self.selection not in ['cyclic', 'random']:
             raise ValueError("selection should be either random or cyclic.")
@@ -1422,6 +1427,7 @@ class ElasticNetCV(LinearModelCV, RegressorMixin):
         self.positive = positive
         self.random_state = random_state
         self.selection = selection
+
 
 ###############################################################################
 # Multi Task ElasticNet and Lasso models (with joint feature selection)
