@@ -225,8 +225,6 @@ def enet_coordinate_descent(np.ndarray[DOUBLE, ndim=1] w,
                             int max_iter, double tol,
                             object rng, bint random=0,
                             bint positive=0,
-                            double alpha_prev=0.,
-                            double beta_prev=0.,
                             int screening=10
                             ):
     """Cython version of the coordinate descent algorithm

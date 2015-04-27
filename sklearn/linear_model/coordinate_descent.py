@@ -424,13 +424,9 @@ def enet_path(X, y, l1_ratio=0.5, eps=1e-3, n_alphas=100, alphas=None,
                 tol, rng, random, positive)
             # XXX screening is not performed in gram/precomputed case
         elif precompute is False:
-            l1_reg_prev = l2_reg_prev = 0.
-            if i > 0:
-                l1_reg_prev = alphas[i - 1] * l1_ratio * n_samples
-                l2_reg_prev = alphas[i - 1] * (1. - l1_ratio) * n_samples
             model = cd_fast.enet_coordinate_descent(
                 coef_, l1_reg, l2_reg, X, y, max_iter, tol, rng, random,
-                positive, l1_reg_prev, l2_reg_prev, screening)
+                positive, screening)
         else:
             raise ValueError("Precompute should be one of True, False, "
                              "'auto' or array-like")
