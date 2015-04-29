@@ -90,30 +90,32 @@ def test_lasso_toy2():
     X = [[np.cos(theta), -np.sin(theta)],
          [np.sin(theta), np.cos(theta)]]
     X = np.asmatrix(X)
-    Y = [[2/np.sqrt(5)], [1/np.sqrt(5)]]
+    Y = np.asmatrix([[2/np.sqrt(5)], [1/np.sqrt(5)]])
+    alpha_max = max(abs(X.T*Y))
+    n_samples = 2
 
-    clf = Lasso(alpha=1e-8)
+    clf = Lasso(alpha=1e-8, fit_intercept=False, normalize=False)
     clf.fit(X, Y)
-    exact_sol = np.diagflat(np.sign(X.T*Y))*np.maximum(abs(X.T*Y)-1e-8,0)
-    assert_array_almost_equal(clf.coef_, exact_sol)
+    exact_sol = (np.diagflat(np.sign(X.T*Y))*np.maximum(abs(X.T*Y)-1e-8*n_samples,0))
+    assert_array_almost_equal(clf.coef_, np.asarray(exact_sol.T)[0])
     assert_almost_equal(clf.dual_gap_, 0)
 
-    clf = Lasso(alpha=0.1)
+    clf = Lasso(alpha=0.1, fit_intercept=False, normalize=False)
     clf.fit(X, Y)
-    exact_sol = np.diagflat(np.sign(X.T*Y))*np.maximum(abs(X.T*Y)-0.1,0)
-    assert_array_almost_equal(clf.coef_, exact_sol)
+    exact_sol = (np.diagflat(np.sign(X.T*Y))*np.maximum(abs(X.T*Y)-0.1*n_samples,0))
+    assert_array_almost_equal(clf.coef_, np.asarray(exact_sol.T)[0])
     assert_almost_equal(clf.dual_gap_, 0)
 
-    clf = Lasso(alpha=0.5)
+    clf = Lasso(alpha=0.5, fit_intercept=False, normalize=False)
     clf.fit(X, Y)
-    exact_sol = np.diagflat(np.sign(X.T*Y))*np.maximum(abs(X.T*Y)-0.5,0)
-    assert_array_almost_equal(clf.coef_, exact_sol)
+    exact_sol = (np.diagflat(np.sign(X.T*Y))*np.maximum(abs(X.T*Y)-0.5*n_samples,0))
+    assert_array_almost_equal(clf.coef_, np.asarray(exact_sol.T)[0])
     assert_almost_equal(clf.dual_gap_, 0)
 
-    clf = Lasso(alpha=1)
+    clf = Lasso(alpha=1, fit_intercept=False, normalize=False)
     clf.fit(X, Y)
-    exact_sol = np.diagflat(np.sign(X.T*Y))*np.maximum(abs(X.T*Y)-1,0)
-    assert_array_almost_equal(clf.coef_, exact_sol)
+    exact_sol = (np.diagflat(np.sign(X.T*Y))*np.maximum(abs(X.T*Y)-1*n_samples,0))
+    assert_array_almost_equal(clf.coef_, np.asarray(exact_sol.T)[0])
     assert_almost_equal(clf.dual_gap_, 0)
 
 
