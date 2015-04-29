@@ -82,6 +82,40 @@ def test_lasso_toy():
     assert_array_almost_equal(pred, [0, 0, 0])
     assert_almost_equal(clf.dual_gap_, 0)
 
+def test_lasso_toy2():
+    """
+    Test Lasso on another toy example for various values of alpha.
+    """
+    theta = np.pi/4
+    X = [[np.cos(theta), -np.sin(theta)],
+         [np.sin(theta), np.cos(theta)]]
+    X = np.asmatrix(X)
+    Y = [[2/np.sqrt(5)], [1/np.sqrt(5)]]
+
+    clf = Lasso(alpha=1e-8)
+    clf.fit(X, Y)
+    exact_sol = np.diagflat(np.sign(X.T*Y))*np.maximum(abs(X.T*Y)-1e-8,0)
+    assert_array_almost_equal(clf.coef_, exact_sol)
+    assert_almost_equal(clf.dual_gap_, 0)
+
+    clf = Lasso(alpha=0.1)
+    clf.fit(X, Y)
+    exact_sol = np.diagflat(np.sign(X.T*Y))*np.maximum(abs(X.T*Y)-0.1,0)
+    assert_array_almost_equal(clf.coef_, exact_sol)
+    assert_almost_equal(clf.dual_gap_, 0)
+
+    clf = Lasso(alpha=0.5)
+    clf.fit(X, Y)
+    exact_sol = np.diagflat(np.sign(X.T*Y))*np.maximum(abs(X.T*Y)-0.5,0)
+    assert_array_almost_equal(clf.coef_, exact_sol)
+    assert_almost_equal(clf.dual_gap_, 0)
+
+    clf = Lasso(alpha=1)
+    clf.fit(X, Y)
+    exact_sol = np.diagflat(np.sign(X.T*Y))*np.maximum(abs(X.T*Y)-1,0)
+    assert_array_almost_equal(clf.coef_, exact_sol)
+    assert_almost_equal(clf.dual_gap_, 0)
+
 
 def test_enet_toy():
     """
