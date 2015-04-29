@@ -188,6 +188,31 @@ def build_dataset(n_samples=50, n_features=200, n_informative_features=10,
     return X, y, X_test, y_test
 
 
+def test_enet_screening():
+    """
+    test that the screening for coordinate descent ElasticNet provides the same
+    results as no screening (original version)
+    """
+    X, y, X_test, y_test = build_dataset()
+    max_iter = 500
+
+    clf_screening = ElasticNet(screening=11, l1_ratio=1, tol=1e-8,
+                               alpha=0.05, max_iter=max_iter).fit(X, y)
+    clf_no_screening = ElasticNet(screening=0, l1_ratio=1, tol=1e-8,
+                                  alpha=0.05, max_iter=max_iter).fit(X, y)
+    assert_array_almost_equal(clf_no_screening.coef_, clf_screening.coef_, 4)
+    assert_true(clf_no_screening.dual_gap_ < 1e-5)
+    assert_true(clf_screening.dual_gap_ < 1e-5)
+
+    clf_screening = ElasticNet(screening=11, l1_ratio=0.5, tol=1e-8,
+                               alpha=0.05, max_iter=max_iter).fit(X, y)
+    clf_no_screening = ElasticNet(screening=0, l1_ratio=0.5, tol=1e-8,
+                                  alpha=0.05, max_iter=max_iter).fit(X, y)
+    assert_array_almost_equal(clf_no_screening.coef_, clf_screening.coef_, 4)
+    assert_true(clf_no_screening.dual_gap_ < 1e-5)
+    assert_true(clf_screening.dual_gap_ < 1e-5)
+
+
 def test_lasso_cv():
     X, y, X_test, y_test = build_dataset()
     max_iter = 150
@@ -387,7 +412,7 @@ def test_enet_cv_positive_constraint():
 def test_multi_task_lasso_and_enet():
     X, y, X_test, y_test = build_dataset()
     Y = np.c_[y, y]
-    #Y_test = np.c_[y_test, y_test]
+    # Y_test = np.c_[y_test, y_test]
     clf = MultiTaskLasso(alpha=1, tol=1e-8).fit(X, Y)
     assert_true(0 < clf.dual_gap_ < 1e-5)
     assert_array_almost_equal(clf.coef_[0], clf.coef_[1])
@@ -401,7 +426,7 @@ def test_enet_multitarget():
     n_targets = 3
     X, y, _, _ = build_dataset(n_samples=10, n_features=8,
                                n_informative_features=10, n_targets=n_targets)
-    estimator = ElasticNet(alpha=0.01, fit_intercept=True)
+    estimator = ElasticNet(alpha=0.01, fit_intercept=True, precompute=True)
     estimator.fit(X, y)
     coef, intercept, dual_gap = (estimator.coef_, estimator.intercept_,
                                  estimator.dual_gap_)

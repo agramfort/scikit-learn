@@ -424,11 +424,9 @@ def enet_path(X, y, l1_ratio=0.5, eps=1e-3, n_alphas=100, alphas=None,
                 tol, rng, random, positive)
             # XXX screening is not performed in gram/precomputed case
         elif precompute is False:
-            l1_reg_prev = 0. if i == 0 else alphas[i - 1] * l1_ratio * n_samples
-            l2_reg_prev = 0. if i == 0 else alphas[i - 1] * (1. - l1_ratio) * n_samples
             model = cd_fast.enet_coordinate_descent(
                 coef_, l1_reg, l2_reg, X, y, max_iter, tol, rng, random,
-                positive, l1_reg_prev, l2_reg_prev, screening)
+                positive, screening)
         else:
             raise ValueError("Precompute should be one of True, False, "
                              "'auto' or array-like")
@@ -583,7 +581,7 @@ class ElasticNet(LinearModel, RegressorMixin):
                  normalize=False, precompute=False, max_iter=1000,
                  copy_X=True, tol=1e-4, warm_start=False, positive=False,
                  random_state=None, selection='cyclic',
-                 screening=0):
+                 screening=10):
         self.alpha = alpha
         self.l1_ratio = l1_ratio
         self.coef_ = None
@@ -647,6 +645,11 @@ class ElasticNet(LinearModel, RegressorMixin):
 
         n_samples, n_features = X.shape
         n_targets = y.shape[1]
+
+        if n_targets > 1:  # make y data contiguous in memory
+            y = np.asfortranarray(y)
+            if Xy is not None:
+                Xy = np.asfortranarray(Xy)
 
         if self.selection not in ['cyclic', 'random']:
             raise ValueError("selection should be either random or cyclic.")
@@ -812,7 +815,7 @@ class Lasso(ElasticNet):
     >>> clf.fit([[0,0], [1, 1], [2, 2]], [0, 1, 2])
     Lasso(alpha=0.1, copy_X=True, fit_intercept=True, max_iter=1000,
        normalize=False, positive=False, precompute=False, random_state=None,
-       selection='cyclic', tol=0.0001, warm_start=False)
+       screening=10, selection='cyclic', tol=0.0001, warm_start=False)
     >>> print(clf.coef_)
     [ 0.85  0.  ]
     >>> print(clf.intercept_)
@@ -840,7 +843,7 @@ class Lasso(ElasticNet):
                  precompute=False, copy_X=True, max_iter=1000,
                  tol=1e-4, warm_start=False, positive=False,
                  random_state=None, selection='cyclic',
-                 screening=0):
+                 screening=10):
         super(Lasso, self).__init__(
             alpha=alpha, l1_ratio=1.0, fit_intercept=fit_intercept,
             normalize=normalize, precompute=precompute, copy_X=copy_X,
@@ -965,7 +968,7 @@ class LinearModelCV(six.with_metaclass(ABCMeta, LinearModel)):
                  normalize=False, precompute='auto', max_iter=1000, tol=1e-4,
                  copy_X=True, cv=None, verbose=False, n_jobs=1,
                  positive=False, random_state=None, selection='cyclic',
-                 screening=0, screening_freq=30):
+                 screening=10):
         self.eps = eps
         self.n_alphas = n_alphas
         self.alphas = alphas
@@ -982,7 +985,6 @@ class LinearModelCV(six.with_metaclass(ABCMeta, LinearModel)):
         self.random_state = random_state
         self.selection = selection
         self.screening = screening
-        self.screening_freq = screening_freq
 
     def fit(self, X, y):
         """Fit linear model with coordinate descent
@@ -1261,14 +1263,14 @@ class LassoCV(LinearModelCV, RegressorMixin):
                  normalize=False, precompute='auto', max_iter=1000, tol=1e-4,
                  copy_X=True, cv=None, verbose=False, n_jobs=1,
                  positive=False, random_state=None, selection='cyclic',
-                 screening=0, screening_freq=30):
+                 screening=10):
         super(LassoCV, self).__init__(
             eps=eps, n_alphas=n_alphas, alphas=alphas,
             fit_intercept=fit_intercept, normalize=normalize,
             precompute=precompute, max_iter=max_iter, tol=tol, copy_X=copy_X,
             cv=cv, verbose=verbose, n_jobs=n_jobs, positive=positive,
             random_state=random_state, selection=selection,
-            screening=screening, screening_freq=screening_freq)
+            screening=screening)
 
 
 class ElasticNetCV(LinearModelCV, RegressorMixin):
@@ -1422,6 +1424,7 @@ class ElasticNetCV(LinearModelCV, RegressorMixin):
         self.positive = positive
         self.random_state = random_state
         self.selection = selection
+
 
 ###############################################################################
 # Multi Task ElasticNet and Lasso models (with joint feature selection)
