@@ -936,6 +936,86 @@ def enet_coordinate_descent_gram(double[:] w, double alpha, double beta,
     return np.asarray(w), gap, tol, n_iter + 1
 
 
+@cython.boundscheck(False)
+@cython.wraparound(False)
+@cython.cdivision(True)
+cdef double multi_task_duality_gap(
+            unsigned int n_samples,
+            unsigned int n_features,
+            unsigned int n_tasks,
+            double[::1, :] X,
+            double[:, :] Y,
+            double[:, ::1] R,
+            double[::1, :] W,
+            # Variables intended to be modified
+            double[:, ::1] XtA,
+            double[:] dual_scaling,
+            # Parameters
+            double l1_reg,
+            double l2_reg,
+            # active set for improved performance
+            int[:] disabled,
+            unsigned int n_disabled=0
+            ) nogil:
+
+    cdef double* X_ptr = &X[0, 0]
+    cdef double* W_ptr = &W[0, 0]
+    cdef double* Y_ptr = &Y[0, 0]
+
+    cdef double R_norm
+    cdef double A_norm
+    cdef double ry_sum
+    cdef double gap
+    cdef double const
+    cdef double l21_norm
+    cdef unsigned int ii
+    cdef unsigned int jj
+
+    # XtA = np.dot(X.T, R) - l2_reg * W.T
+    for ii in range(n_features):
+        for jj in range(n_tasks):
+            XtA[ii, jj] = ddot(
+                n_samples, X_ptr + ii * n_samples, 1,
+                &R[0, 0] + jj, n_tasks
+                ) - l2_reg * W[jj, ii]
+
+    # dual_norm_XtA = np.max(np.sqrt(np.sum(XtA ** 2, axis=1)))
+    dual_norm_XtA = 0.0
+    for ii in range(n_features):
+        # np.sqrt(np.sum(XtA ** 2, axis=1))
+        XtA_axis1norm = dnrm2(n_tasks, &XtA[0, 0] + ii * n_tasks, 1)
+        if XtA_axis1norm > dual_norm_XtA:
+            dual_norm_XtA = XtA_axis1norm
+
+    # TODO: use squared L2 norm directly
+    # R_norm = linalg.norm(R, ord='fro')
+    # w_norm = linalg.norm(W, ord='fro')
+    R_norm = dnrm2(n_samples * n_tasks, &R[0, 0], 1)
+    w_norm = dnrm2(n_features * n_tasks, W_ptr, 1)
+    if (dual_norm_XtA > l1_reg):
+        const =  l1_reg / dual_norm_XtA
+        A_norm = R_norm * const
+        gap = 0.5 * (R_norm ** 2 + A_norm ** 2)
+    else:
+        const = 1.0
+        gap = R_norm ** 2
+
+    # ry_sum = np.sum(R * y)
+    ry_sum = 0.0
+    for ii in range(n_samples):
+        for jj in range(n_tasks):
+            ry_sum += R[ii, jj] * Y[ii, jj]
+
+    # l21_norm = np.sqrt(np.sum(W ** 2, axis=0)).sum()
+    l21_norm = 0.0
+    for ii in range(n_features):
+        # np.sqrt(np.sum(W ** 2, axis=0))
+        l21_norm += dnrm2(n_tasks, W_ptr + n_tasks * ii, 1)
+
+    gap += l1_reg * l21_norm - const * ry_sum + \
+         0.5 * l2_reg * (1 + const ** 2) * (w_norm ** 2)
+
+    return gap
 
 
 @cython.boundscheck(False)
@@ -945,7 +1025,7 @@ def enet_coordinate_descent_multi_task(double[::1, :] W, double l1_reg,
                                        double l2_reg, double[::1, :] X,
                                        double[:, :] Y, int max_iter,
                                        double tol, object rng,
-                                       bint random=0):
+                                       bint random=0, int screening=10):
     """Cython version of the coordinate descent algorithm
         for Elastic-Net mult-task regression
 
@@ -993,11 +1073,28 @@ def enet_coordinate_descent_multi_task(double[::1, :] W, double l1_reg,
     cdef double* Y_ptr = &Y[0, 0]
     cdef double* wii_ptr = &w_ii[0]
 
+    cdef bint do_gap = 0
+    cdef unsigned int n_active = n_features
+    cdef np.ndarray[DOUBLE, ndim=1] dual_scaling = np.empty(1)
+    cdef double r_screening
+    cdef np.ndarray[np.int32_t, ndim=1] active_set = np.empty(n_features, dtype=np.intc)
+    cdef np.ndarray[np.int32_t, ndim=1] disabled = np.zeros(n_features, dtype=np.intc)
+
     if l1_reg == 0:
         warnings.warn("Coordinate descent with l1_reg=0 may lead to unexpected"
             " results and is discouraged.")
 
-    with nogil:
+    # with nogil:
+    if 1:
+        if screening == 0:
+            n_active = 0
+            for ii in range(n_features):
+                if norm2_cols_X[ii] != 0.0:
+                    active_set[n_active] = ii
+                    n_active += 1
+                else:
+                    disabled[ii] = 1
+
         # norm2_cols_X = (np.asarray(X) ** 2).sum(axis=0)
         for ii in range(n_features):
             for jj in range(n_samples):
@@ -1014,13 +1111,73 @@ def enet_coordinate_descent_multi_task(double[::1, :] W, double l1_reg,
         tol = tol * dnrm2(n_samples * n_tasks, Y_ptr, 1) ** 2
 
         for n_iter in range(max_iter):
+            ####################
+            # variable screening
+
+            do_gap = False
+            if (n_iter and w_max == 0.0  # heuristic termination criterion
+                    or d_w_max / w_max < d_w_tol):
+                # the biggest coordinate update of this iteration was smaller
+                # than the tolerance: check the duality gap as ultimate
+                # stopping criterion
+                do_gap = True
+
+            do_gap = (do_gap or (screening > 0 and n_iter % screening == 0)
+                      or (n_iter == max_iter - 1)) or (n_iter == 0)
+
+            if do_gap and screening > 0:  # Screening
+                gap = multi_task_duality_gap(
+                            n_samples, n_features, n_tasks, X, Y, R, W, XtA, dual_scaling,
+                            l1_reg, l2_reg, disabled, n_features - n_active)
+
+                if (gap < tol) or (n_iter == max_iter - 1):
+                    # recompute non lazy gap as safeguard if screening is not correct
+                    # or if last iteration
+                    gap = multi_task_duality_gap(
+                                n_samples, n_features, n_tasks, X, Y, R, W, XtA, dual_scaling,
+                                l1_reg, l2_reg, disabled, 0)
+                    # 0 because we do not trust the screening
+                    # XXX to do really?
+
+                    # break if we reached desired tolerance
+                    if gap < tol:
+                        break
+
+            if do_gap and screening == 0:
+                gap = multi_task_duality_gap(
+                            n_samples, n_features, n_tasks, X, Y, R, W, XtA, dual_scaling,
+                            l1_reg, l2_reg, disabled, 0)
+
+                if gap < tol:
+                    # return if we reached desired tolerance
+                    break
+
+            if do_gap and screening > 0:  # Screening
+
+                r_screening = sqrt(2. * gap) / l1_reg
+                n_active = 0
+
+                for ii in range(n_features):  # Loop over coordinates
+
+                    if disabled[ii] == 1:
+                         continue
+
+                    if screening > 0:
+                        tmp = XtA[ii] / dual_scaling[0]  # ours
+
+                    if tmp >= (1. - r_screening * sqrt(norm2_cols_X[ii])) or W[ii, 0] != 0.:
+                        active_set[n_active] = ii
+                        n_active += 1
+                    else:
+                        disabled[ii] = 1
+
             w_max = 0.0
             d_w_max = 0.0
-            for f_iter in range(n_features):  # Loop over coordinates
+            for f_iter in range(n_active):  # Loop over coordinates
                 if random:
-                    ii = rand_int(n_features, rand_r_state)
+                    ii = active_set[rand_int(n_active, rand_r_state)]
                 else:
-                    ii = f_iter
+                    ii = active_set[f_iter]
 
                 if norm2_cols_X[ii] == 0.0:
                     continue
@@ -1065,57 +1222,5 @@ def enet_coordinate_descent_multi_task(double[::1, :] W, double l1_reg,
                 if W_ii_abs_max > w_max:
                     w_max = W_ii_abs_max
 
-            if w_max == 0.0 or d_w_max / w_max < d_w_tol or n_iter == max_iter - 1:
-                # the biggest coordinate update of this iteration was smaller than
-                # the tolerance: check the duality gap as ultimate stopping
-                # criterion
-
-                # XtA = np.dot(X.T, R) - l2_reg * W.T
-                for ii in range(n_features):
-                    for jj in range(n_tasks):
-                        XtA[ii, jj] = ddot(
-                            n_samples, X_ptr + ii * n_samples, 1,
-                            &R[0, 0] + jj, n_tasks
-                            ) - l2_reg * W[jj, ii]
-
-                # dual_norm_XtA = np.max(np.sqrt(np.sum(XtA ** 2, axis=1)))
-                dual_norm_XtA = 0.0
-                for ii in range(n_features):
-                    # np.sqrt(np.sum(XtA ** 2, axis=1))
-                    XtA_axis1norm = dnrm2(n_tasks, &XtA[0, 0] + ii * n_tasks, 1)
-                    if XtA_axis1norm > dual_norm_XtA:
-                        dual_norm_XtA = XtA_axis1norm
-
-                # TODO: use squared L2 norm directly
-                # R_norm = linalg.norm(R, ord='fro')
-                # w_norm = linalg.norm(W, ord='fro')
-                R_norm = dnrm2(n_samples * n_tasks, &R[0, 0], 1)
-                w_norm = dnrm2(n_features * n_tasks, W_ptr, 1)
-                if (dual_norm_XtA > l1_reg):
-                    const =  l1_reg / dual_norm_XtA
-                    A_norm = R_norm * const
-                    gap = 0.5 * (R_norm ** 2 + A_norm ** 2)
-                else:
-                    const = 1.0
-                    gap = R_norm ** 2
-
-                # ry_sum = np.sum(R * y)
-                ry_sum = 0.0
-                for ii in range(n_samples):
-                    for jj in range(n_tasks):
-                        ry_sum += R[ii, jj] * Y[ii, jj]
-
-                # l21_norm = np.sqrt(np.sum(W ** 2, axis=0)).sum()
-                l21_norm = 0.0
-                for ii in range(n_features):
-                    # np.sqrt(np.sum(W ** 2, axis=0))
-                    l21_norm += dnrm2(n_tasks, W_ptr + n_tasks * ii, 1)
-
-                gap += l1_reg * l21_norm - const * ry_sum + \
-                     0.5 * l2_reg * (1 + const ** 2) * (w_norm ** 2)
-
-                if gap < tol:
-                    # return if we reached desired tolerance
-                    break
 
     return np.asarray(W), gap, tol, n_iter + 1

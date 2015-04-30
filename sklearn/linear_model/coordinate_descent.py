@@ -1485,6 +1485,8 @@ class MultiTaskElasticNet(Lasso):
         (setting to 'random') often leads to significantly faster convergence
         especially when tol is higher than 1e-4.
 
+    screening : XXX
+
     random_state : int, RandomState instance, or None (default)
         The seed of the pseudo random number generator that selects
         a random feature to update. Useful only when selection is set to
@@ -1531,7 +1533,8 @@ class MultiTaskElasticNet(Lasso):
     """
     def __init__(self, alpha=1.0, l1_ratio=0.5, fit_intercept=True,
                  normalize=False, copy_X=True, max_iter=1000, tol=1e-4,
-                 warm_start=False, random_state=None, selection='cyclic'):
+                 warm_start=False, random_state=None, selection='cyclic',
+                 screening=10):
         self.l1_ratio = l1_ratio
         self.alpha = alpha
         self.coef_ = None
@@ -1543,6 +1546,7 @@ class MultiTaskElasticNet(Lasso):
         self.warm_start = warm_start
         self.random_state = random_state
         self.selection = selection
+        self.screening = screening
 
     def fit(self, X, y):
         """Fit MultiTaskLasso model with coordinate descent
@@ -1602,7 +1606,8 @@ class MultiTaskElasticNet(Lasso):
         self.coef_, self.dual_gap_, self.eps_, self.n_iter_ = \
             cd_fast.enet_coordinate_descent_multi_task(
                 self.coef_, l1_reg, l2_reg, X, y, self.max_iter, self.tol,
-                check_random_state(self.random_state), random)
+                check_random_state(self.random_state), random,
+                screening)
 
         self._set_intercept(X_mean, y_mean, X_std)
 
@@ -1662,6 +1667,8 @@ class MultiTaskLasso(MultiTaskElasticNet):
         (setting to 'random') often leads to significantly faster convergence
         especially when tol is higher than 1e-4
 
+    screening : XXX
+
     random_state : int, RandomState instance, or None (default)
         The seed of the pseudo random number generator that selects
         a random feature to update. Useful only when selection is set to
@@ -1706,7 +1713,7 @@ class MultiTaskLasso(MultiTaskElasticNet):
     """
     def __init__(self, alpha=1.0, fit_intercept=True, normalize=False,
                  copy_X=True, max_iter=1000, tol=1e-4, warm_start=False,
-                 random_state=None, selection='cyclic'):
+                 random_state=None, selection='cyclic', screening=10):
         self.alpha = alpha
         self.coef_ = None
         self.fit_intercept = fit_intercept
@@ -1718,6 +1725,7 @@ class MultiTaskLasso(MultiTaskElasticNet):
         self.l1_ratio = 1.0
         self.random_state = random_state
         self.selection = selection
+        self.screening = screening
 
 
 class MultiTaskElasticNetCV(LinearModelCV, RegressorMixin):
