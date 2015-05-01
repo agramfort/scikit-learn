@@ -1072,6 +1072,7 @@ def enet_coordinate_descent_multi_task(double[::1, :] W, double l1_reg,
     cdef double* W_ptr = &W[0, 0]
     cdef double* Y_ptr = &Y[0, 0]
     cdef double* wii_ptr = &w_ii[0]
+    cdef double* XtA_ptr = &XtA[0, 0]
 
     cdef bint do_gap = 0
     cdef unsigned int n_active = n_features
@@ -1079,6 +1080,7 @@ def enet_coordinate_descent_multi_task(double[::1, :] W, double l1_reg,
     cdef double r_screening
     cdef np.ndarray[np.int32_t, ndim=1] active_set = np.empty(n_features, dtype=np.intc)
     cdef np.ndarray[np.int32_t, ndim=1] disabled = np.zeros(n_features, dtype=np.intc)
+    cdef double tmp_d
 
     if l1_reg == 0:
         warnings.warn("Coordinate descent with l1_reg=0 may lead to unexpected"
@@ -1162,10 +1164,10 @@ def enet_coordinate_descent_multi_task(double[::1, :] W, double l1_reg,
                     if disabled[ii] == 1:
                          continue
 
-                    if screening > 0:
-                        tmp = XtA[ii] / dual_scaling[0]  # ours
+                    # tmp_d = norm(XtA[ii]) / dual_scaling[0]  # ours
+                    tmp_d = dnrm2(n_tasks, XtA_ptr + ii * n_tasks, 1) / dual_scaling[0]
 
-                    if tmp >= (1. - r_screening * sqrt(norm2_cols_X[ii])) or W[ii, 0] != 0.:
+                    if tmp_d >= (1. - r_screening * sqrt(norm2_cols_X[ii])) or W[ii, 0] != 0.:
                         active_set[n_active] = ii
                         n_active += 1
                     else:
