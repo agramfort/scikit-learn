@@ -944,7 +944,7 @@ cdef double multi_task_duality_gap(
             unsigned int n_features,
             unsigned int n_tasks,
             double[::1, :] X,
-            double[:, :] Y,
+            double[:, ::1] Y,
             double[:, ::1] R,
             double[::1, :] W,
             # Variables intended to be modified
@@ -968,6 +968,7 @@ cdef double multi_task_duality_gap(
     cdef double gap
     cdef double const
     cdef double l21_norm
+    cdef double XtA_axis1norm
     cdef unsigned int ii
     cdef unsigned int jj
 
@@ -980,20 +981,20 @@ cdef double multi_task_duality_gap(
                 ) - l2_reg * W[jj, ii]
 
     # dual_norm_XtA = np.max(np.sqrt(np.sum(XtA ** 2, axis=1)))
-    dual_norm_XtA = 0.0
+    dual_scaling[0] = 0.0
     for ii in range(n_features):
         # np.sqrt(np.sum(XtA ** 2, axis=1))
         XtA_axis1norm = dnrm2(n_tasks, &XtA[0, 0] + ii * n_tasks, 1)
-        if XtA_axis1norm > dual_norm_XtA:
-            dual_norm_XtA = XtA_axis1norm
+        if XtA_axis1norm > dual_scaling[0]:
+            dual_scaling[0] = XtA_axis1norm
 
     # TODO: use squared L2 norm directly
     # R_norm = linalg.norm(R, ord='fro')
     # w_norm = linalg.norm(W, ord='fro')
     R_norm = dnrm2(n_samples * n_tasks, &R[0, 0], 1)
     w_norm = dnrm2(n_features * n_tasks, W_ptr, 1)
-    if (dual_norm_XtA > l1_reg):
-        const =  l1_reg / dual_norm_XtA
+    if (dual_scaling[0] > l1_reg):
+        const =  l1_reg / dual_scaling[0]
         A_norm = R_norm * const
         gap = 0.5 * (R_norm ** 2 + A_norm ** 2)
     else:
@@ -1001,6 +1002,7 @@ cdef double multi_task_duality_gap(
         gap = R_norm ** 2
 
     # ry_sum = np.sum(R * y)
+    # XXX : should be done with blas
     ry_sum = 0.0
     for ii in range(n_samples):
         for jj in range(n_tasks):
@@ -1023,7 +1025,7 @@ cdef double multi_task_duality_gap(
 @cython.cdivision(True)
 def enet_coordinate_descent_multi_task(double[::1, :] W, double l1_reg,
                                        double l2_reg, double[::1, :] X,
-                                       double[:, :] Y, int max_iter,
+                                       double[:, ::1] Y, int max_iter,
                                        double tol, object rng,
                                        bint random=0, int screening=10):
     """Cython version of the coordinate descent algorithm
@@ -1042,14 +1044,12 @@ def enet_coordinate_descent_multi_task(double[::1, :] W, double l1_reg,
     cdef unsigned int n_tasks = Y.shape[1]
 
     # to store XtA
-    cdef double[:, ::1] XtA = np.zeros((n_features, n_tasks))
-    cdef double XtA_axis1norm
-    cdef double dual_norm_XtA
+    cdef double[:, ::1] XtA = np.zeros((n_features, n_tasks), dtype=np.float)
 
     # initial value of the residuals
-    cdef double[:, ::1] R = np.zeros((n_samples, n_tasks))
+    cdef double[:, ::1] R = np.zeros((n_samples, n_tasks), dtype=np.float)
 
-    cdef double[:] norm2_cols_X = np.zeros(n_features)
+    cdef double[:] norm2_cols_X = np.zeros(n_features, dtype=np.float)
     cdef double[::1] tmp = np.zeros(n_tasks, dtype=np.float)
     cdef double[:] w_ii = np.zeros(n_tasks, dtype=np.float)
     cdef double d_w_max
@@ -1088,6 +1088,11 @@ def enet_coordinate_descent_multi_task(double[::1, :] W, double l1_reg,
 
     # with nogil:
     if 1:
+        # norm2_cols_X = (np.asarray(X) ** 2).sum(axis=0)
+        for ii in range(n_features):
+            for jj in range(n_samples):
+                norm2_cols_X[ii] += X[jj, ii] ** 2
+
         if screening == 0:
             n_active = 0
             for ii in range(n_features):
@@ -1096,11 +1101,6 @@ def enet_coordinate_descent_multi_task(double[::1, :] W, double l1_reg,
                     n_active += 1
                 else:
                     disabled[ii] = 1
-
-        # norm2_cols_X = (np.asarray(X) ** 2).sum(axis=0)
-        for ii in range(n_features):
-            for jj in range(n_samples):
-                norm2_cols_X[ii] += X[jj, ii] ** 2
 
         # R = Y - np.dot(X, W.T)
         for ii in range(n_samples):
@@ -1181,8 +1181,9 @@ def enet_coordinate_descent_multi_task(double[::1, :] W, double l1_reg,
                 else:
                     ii = active_set[f_iter]
 
-                if norm2_cols_X[ii] == 0.0:
-                    continue
+                # XXX useless
+                # if norm2_cols_X[ii] == 0.0:
+                #     continue
 
                 # w_ii = W[:, ii] # Store previous value
                 dcopy(n_tasks, W_ptr + ii * n_tasks, 1, wii_ptr, 1)
@@ -1225,4 +1226,4 @@ def enet_coordinate_descent_multi_task(double[::1, :] W, double l1_reg,
                     w_max = W_ii_abs_max
 
 
-    return np.asarray(W), gap, tol, n_iter + 1
+    return W, gap, tol, n_iter + 1

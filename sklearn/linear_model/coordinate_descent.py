@@ -1607,7 +1607,7 @@ class MultiTaskElasticNet(Lasso):
             cd_fast.enet_coordinate_descent_multi_task(
                 self.coef_, l1_reg, l2_reg, X, y, self.max_iter, self.tol,
                 check_random_state(self.random_state), random,
-                screening)
+                self.screening)
 
         self._set_intercept(X_mean, y_mean, X_std)
 
