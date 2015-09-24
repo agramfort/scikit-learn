@@ -5,6 +5,7 @@ from sklearn.utils.testing import assert_equal, assert_almost_equal
 
 from sklearn.datasets import make_regression
 from sklearn.preprocessing import StandardScaler
+from sklearn.linear_model import HuberRegressor
 from sklearn.linear_model.huber import _huber_loss_and_gradient
 
 X, y = make_regression(n_samples=50, n_features=20)
@@ -22,7 +23,7 @@ def test_huber_loss():
     w = rng.randn(X.shape[1])
     huber_loss = _huber_loss_and_gradient(w, X, y, 10000.0, 0.1)[0]
     squared_loss = 0.5 * np.sum((y - np.dot(X, w))**2) + 0.1 * np.dot(w, w)
-    assert_equal(huber_loss, squared_loss)
+    assert_equal(huber_loss, squared_loss, 4)
 
     # When epsilon is very small, this should reduce to the linear loss.
     epsilon = 0.01
@@ -30,7 +31,7 @@ def test_huber_loss():
     linear_loss = (epsilon * np.sum(np.abs(y - np.dot(X, w))) -
     	           X.shape[0] * epsilon * epsilon / 2 +
     	           0.1 * np.dot(w, w))
-    assert_equal(huber_loss, linear_loss)
+    assert_almost_equal(huber_loss, linear_loss, 4)
 
 
 def test_huber_gradient():
@@ -45,3 +46,7 @@ def test_huber_gradient():
         grad_same = optimize.check_grad(
             loss_func, grad_func, w, X, y, 0.01, 0.1)
         assert_almost_equal(grad_same, 1e-6, 4)
+
+
+# def test_huber_convergence():
+# 	"""Test that the loss function converges to zero."""
