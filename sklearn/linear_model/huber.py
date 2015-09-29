@@ -33,16 +33,30 @@ def _huber_loss_and_gradient(w, X, y, epsilon, alpha):
     # Calculate the quadratic loss due to the non-outliers.-
     # This is equal to |(y - X'w)**2 / exp(2*sigma)|*exp(sigma)
     non_outliers = linear_loss[~outliers_true]
-    loss = exp(-sigma) * np.dot(non_outliers, non_outliers) + outlier_loss
+    squared_loss = exp(-sigma) * np.dot(non_outliers, non_outliers)
 
     # Calulate the gradient
-    # grad = np.dot(non_outliers, -X[~outliers_true, :])
-    # outliers_true_pos = np.logical_and(linear_loss >= 0, outliers_true)
-    # outliers_true_neg = np.logical_and(linear_loss < 0, outliers_true)
-    # grad -= epsilon * X[outliers_true_pos, :].sum(axis=0)
-    # grad += epsilon * X[outliers_true_neg, :].sum(axis=0)
-    # grad += alpha * 2 * w
-    return X.shape[0] * exp(sigma) + loss + alpha * np.dot(w, w)#, grad
+    n_samples, n_features = X.shape
+    grad = np.zeros(n_features + 1)
+
+    # Gradient due to the squared loss.
+    grad[:n_features] = 2 * exp(-sigma) * np.dot(non_outliers, -X[~outliers_true, :])
+
+    # Gradient due to the linear loss.
+    outliers_true_pos = np.logical_and(linear_loss >= 0, outliers_true)
+    outliers_true_neg = np.logical_and(linear_loss < 0, outliers_true)
+    grad[:n_features] -= 2 * epsilon * X[outliers_true_pos, :].sum(axis=0)
+    grad[:n_features] += 2 * epsilon * X[outliers_true_neg, :].sum(axis=0)
+
+    # Gradient due to the penalty.
+    grad[:n_features] += alpha * 2 * w
+
+    # Gradient due to sigma.
+    grad[-1] = n_samples * exp(sigma)
+    grad[-1] -= n_outliers * epsilon**2 * exp(sigma)
+    grad[-1] -= squared_loss
+
+    return X.shape[0] * exp(sigma) + squared_loss + outlier_loss + alpha * np.dot(w, w), grad
 
 
 class HuberRegressor(LinearModel, RegressorMixin, BaseEstimator):
@@ -57,7 +71,7 @@ class HuberRegressor(LinearModel, RegressorMixin, BaseEstimator):
 
     def fit(self, X, y):
         X = check_array(X, copy=self.copy)
-        y = check_array(y, copy=self.copy)
+        y = check_array(y, copy=self.copy).ravel()
 
         coef = getattr(self, 'coef_', None)
         if not self.warm_start or (self.warm_start and coef is None):
@@ -65,7 +79,7 @@ class HuberRegressor(LinearModel, RegressorMixin, BaseEstimator):
 
         try:
             self.coef_, f, self.dict_ = optimize.fmin_l_bfgs_b(
-                _huber_loss_and_gradient, self.coef_, approx_grad=True,
+                _huber_loss_and_gradient, self.coef_,
                 args=(X, y, self.epsilon, self.alpha), maxiter=self.n_iter, pgtol=1e-3)
         except TypeError:
             self.coef_, f, self.dict_ = optimize.fmin_l_bfgs_b(
