@@ -11,9 +11,36 @@ from sklearn.utils import check_X_y, check_array, check_consistent_length, colum
 
 def _huber_loss_and_gradient(w, X, y, epsilon, alpha):
     """
-    Calculate the robust huber loss as described in
-    "A robust hybrid of lasso and ridge regression.
+    Returns the huber loss and the gradient.
 
+    Parameters
+    ----------
+    w: ndarray, shape (n_features + 1,) or (n_features + 2,)
+        Feature vector.
+        w[:n_features] gives the feature vector
+        w[-1] gives the scale factor and if the intercept is fit w[-2]
+        gives the intercept factor.
+
+    X: ndarray, shape (n_samples, n_features)
+        Input data.
+
+    y: ndarray, shape (n_samples,)
+        Target vector.
+
+    epsilon: float
+        Measures the robustness of the huber estimator.
+
+    alpha: float
+        Regularization parameter.
+
+    Returns
+    -------
+    loss: float
+        Huber loss.
+
+    gradient: ndarray, shape (n_features + 1,) or (n_features + 2,)
+        Returns the derivative of the huber loss with respect to each
+        coefficient, intercept and the scale as a vector.
     """
     n_samples, n_features = X.shape
     fit_intercept = n_features + 2 == w.shape[0]
@@ -68,10 +95,81 @@ def _huber_loss_and_gradient(w, X, y, epsilon, alpha):
         grad[-2] = -2 * exp(-sigma) * np.sum(non_outliers)
         grad[-2] -= 2 * epsilon * np.sum(outliers_true_pos)
         grad[-2] += 2 * epsilon * np.sum(outliers_true_neg)
-    return X.shape[0] * exp(sigma) + squared_loss + outlier_loss + alpha * np.dot(w, w), grad
+    return n_samples * exp(sigma) + squared_loss + outlier_loss + alpha * np.dot(w, w), grad
 
 
 class HuberRegressor(LinearModel, RegressorMixin, BaseEstimator):
+    """
+    Linear regression model that is robust to outliers.
+
+    The Huber Regressor optimizes the squared loss for the samples where
+    |y - X'w / exp(sigma)| > epsilon and the linear loss for the samples
+    where |y - X'w / exp(sigma)| < epsilon, where w and sigma are parameters
+    to be optimized. The parameter sigma makes sure that if y is scaled up
+    or down by a certain factor, one does not need to rescale M to acheive
+    the same robustness.
+
+    This makes sure that the loss function is not heavily influenced by the
+    outliers while not completely ignoring their effect.
+
+    More specifically the loss function optimized is.
+        X.shape[0] * exp(sigma) + (
+            \sum_{i=1}^{i=X.shape[0]}H(y_{i} - X_{i}*w - c / exp(sigma))
+            * exp(sigma))
+    where
+
+        - H(z) = z**2 when |z| < epsilon
+        - H(z) = 2 * epsilon * |z| - epsilon ** 2 when |z| > epsilon
+
+    This loss function is jointly convex in sigma and w and hence can be
+    optimized together.
+
+    Parameters
+    ----------
+    epsilon: float, greater than 1.0, default 1.35
+        The parameter epsilon controls the number of samples that should be
+        classified as outliers. The lesser the epsilon, the more robust it is
+        to outliers.
+
+    n_iter: int, default 100
+        Number of iterations that scipy.optimize.fmin_l_bfgs_b should run for.
+
+    alpha: float, default 0.0001
+        Regularization parameter.
+
+    warm_start: bool, default False
+        If warm_start is set to False, the coefficients will be overwritten
+        for every call to fit.
+
+    copy: bool, default True
+        If set to False, the input data may be overwritten.
+
+    fit_intercept: bool, default True
+        Whether or not to fit the intercept. This can be set to False for
+        if the data is already centered around the origin.
+
+    Attributes
+    ----------
+    coef_: array, shape (n_features,)
+        Features got by optimizing the huber loss.
+
+    intercept_: float
+        Bias factor.
+
+    scale_ : float
+        The value by which |y - X'w -c| is scaled down by.
+
+    References
+    ----------
+    Art B. Owen (2006), A robust hybrid of lasso and ridge regression.
+    http://statweb.stanford.edu/~owen/reports/hhu.pdf
+
+    Notes
+    -----
+    Though, the paper says to use sigma, we use exp(sigma). This removes the
+    constraint that sigma should be positive.
+    """
+
     def __init__(self, epsilon=1.35, n_iter=100, alpha=0.0001,
                  warm_start=False, copy=True, fit_intercept=True):
         self.epsilon = epsilon
@@ -82,13 +180,31 @@ class HuberRegressor(LinearModel, RegressorMixin, BaseEstimator):
         self.fit_intercept = fit_intercept
 
     def fit(self, X, y):
+        """Fit the model according to the given training data.
 
+        Parameters
+        ----------
+        X : array-like, shape (n_samples,)
+            Training vector, where n_samples in the number of samples and
+            n_features is the number of features.
+
+        y : array-like, shape (n_samples,)
+            Target vector relative to X.
+
+        Returns
+        -------
+        self : object
+            Returns self.
+        """
         # We can use check_X_y directly after consensus on
         # https://github.com/scikit-learn/scikit-learn/pull/5312 is reached.
         X = check_array(X, copy=self.copy)
         y = column_or_1d(y, warn=True)
         check_consistent_length(X, y)
 
+        if self.epsilon < 1.0:
+            raise ValueError(
+                "epsilon should be greater than 1.0, got %f" % self.epsilon)
         coef = getattr(self, 'coef_', None)
         if not self.warm_start or (self.warm_start and coef is None):
             if self.fit_intercept:
