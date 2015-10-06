@@ -9,7 +9,7 @@ from sklearn.linear_model.base import center_data, LinearModel
 from sklearn.preprocessing import StandardScaler
 from sklearn.utils import check_X_y, check_array, check_consistent_length, column_or_1d
 
-def _huber_loss_and_gradient(w, X, y, epsilon, alpha):
+def _huber_loss_and_gradient(w, X, y, epsilon, alpha, sample_weight=None):
     """
     Returns the huber loss and the gradient.
 
@@ -49,6 +49,9 @@ def _huber_loss_and_gradient(w, X, y, epsilon, alpha):
     sigma = w[-1]
     w = w[:X.shape[1]]
 
+    if sample_weight is not None:
+        n_samples = np.sum(sample_weight)
+
     # Calculate the values where |y - X'w -c / exp(sigma)| > epsilon
     # The values above this threshold are outliers.
     linear_loss = y - np.dot(X, w)
@@ -59,14 +62,29 @@ def _huber_loss_and_gradient(w, X, y, epsilon, alpha):
 
     # Calculate the linear loss due to the outliers.
     # This is equal to (2 * M * |y - X'w / exp(sigma)| - M**2)*exp(sigma)
-    n_outliers = np.count_nonzero(outliers_true)
     outliers = abs_linear_loss[outliers_true]
-    outlier_loss = 2 * epsilon * np.sum(outliers) - exp(sigma) * n_outliers * epsilon**2
+    if sample_weight is None:
+        n_outliers = np.count_nonzero(outliers_true)
+        outlier_loss = (
+            2 * epsilon * np.sum(outliers) -
+            exp(sigma) * n_outliers * epsilon**2)
+    else:
+        outliers_sw = sample_weight[outliers_true]
+        n_outliers = np.sum(outliers_sw)
+        outlier_loss = (
+            2 * epsilon * np.sum(outliers_sw * outliers) -
+            exp(sigma) * n_outliers * epsilon**2)
+
 
     # Calculate the quadratic loss due to the non-outliers.-
     # This is equal to |(y - X'w)**2 / exp(2*sigma)|*exp(sigma)
     non_outliers = linear_loss[~outliers_true]
-    squared_loss = exp(-sigma) * np.dot(non_outliers, non_outliers)
+    if sample_weight is None:
+        squared_loss = exp(-sigma) * np.dot(non_outliers, non_outliers)
+    else:
+        weighted_non_outliers = sample_weight[~outliers_true] * non_outliers
+        weighted_loss = np.dot(weighted_non_outliers, non_outliers)
+        squared_loss = exp(-sigma) * weighted_loss
 
     if fit_intercept:
         grad = np.zeros(n_features + 2)
@@ -74,13 +92,27 @@ def _huber_loss_and_gradient(w, X, y, epsilon, alpha):
         grad = np.zeros(n_features + 1)
 
     # Gradient due to the squared loss.
-    grad[:n_features] = 2 * exp(-sigma) * np.dot(non_outliers, -X[~outliers_true, :])
+    if sample_weight is None:
+        grad[:n_features] = (
+            2 * exp(-sigma) * np.dot(non_outliers, -X[~outliers_true, :]))
+    else:
+        grad[:n_features] = (
+            2 * exp(-sigma) * np.dot(weighted_non_outliers, -X[~outliers_true, :])
+        )
 
     # Gradient due to the linear loss.
     outliers_true_pos = np.logical_and(linear_loss >= 0, outliers_true)
     outliers_true_neg = np.logical_and(linear_loss < 0, outliers_true)
-    grad[:n_features] -= 2 * epsilon * X[outliers_true_pos, :].sum(axis=0)
-    grad[:n_features] += 2 * epsilon * X[outliers_true_neg, :].sum(axis=0)
+    if sample_weight is None:
+        grad[:n_features] -= 2 * epsilon * X[outliers_true_pos, :].sum(axis=0)
+        grad[:n_features] += 2 * epsilon * X[outliers_true_neg, :].sum(axis=0)
+    else:
+        sample_weight_outliers_true_pos = sample_weight[outliers_true_pos].reshape(-1, 1)
+        sample_weight_outliers_true_neg = sample_weight[outliers_true_neg].reshape(-1, 1)
+        grad[:n_features] -= 2 * epsilon * (
+            (sample_weight_outliers_true_pos * X[outliers_true_pos, :]).sum(axis=0))
+        grad[:n_features] += 2 * epsilon * (
+            (sample_weight_outliers_true_neg * X[outliers_true_neg, :]).sum(axis=0))
 
     # Gradient due to the penalty.
     grad[:n_features] += alpha * 2 * w
@@ -92,9 +124,15 @@ def _huber_loss_and_gradient(w, X, y, epsilon, alpha):
 
     # Gradient due to the intercept.
     if fit_intercept:
-        grad[-2] = -2 * exp(-sigma) * np.sum(non_outliers)
-        grad[-2] -= 2 * epsilon * np.sum(outliers_true_pos)
-        grad[-2] += 2 * epsilon * np.sum(outliers_true_neg)
+        if sample_weight is None:
+            grad[-2] = -2 * exp(-sigma) * np.sum(non_outliers)
+            grad[-2] -= 2 * epsilon * np.sum(outliers_true_pos)
+            grad[-2] += 2 * epsilon * np.sum(outliers_true_neg)
+        else:
+            grad[-2] = -2 * exp(-sigma) * np.sum(weighted_non_outliers)
+            grad[-2] -= 2 * epsilon * np.sum(sample_weight[outliers_true_pos])
+            grad[-2] += 2 * epsilon * np.sum(sample_weight[outliers_true_neg])
+
     return n_samples * exp(sigma) + squared_loss + outlier_loss + alpha * np.dot(w, w), grad
 
 
@@ -141,9 +179,6 @@ class HuberRegressor(LinearModel, RegressorMixin, BaseEstimator):
         If warm_start is set to False, the coefficients will be overwritten
         for every call to fit.
 
-    copy: bool, default True
-        If set to False, the input data may be overwritten.
-
     fit_intercept: bool, default True
         Whether or not to fit the intercept. This can be set to False for
         if the data is already centered around the origin.
@@ -171,15 +206,14 @@ class HuberRegressor(LinearModel, RegressorMixin, BaseEstimator):
     """
 
     def __init__(self, epsilon=1.35, n_iter=100, alpha=0.0001,
-                 warm_start=False, copy=True, fit_intercept=True):
+                 warm_start=False, fit_intercept=True):
         self.epsilon = epsilon
         self.n_iter = n_iter
         self.alpha = alpha
         self.warm_start = warm_start
-        self.copy = copy
         self.fit_intercept = fit_intercept
 
-    def fit(self, X, y):
+    def fit(self, X, y, sample_weight=None):
         """Fit the model according to the given training data.
 
         Parameters
@@ -198,9 +232,13 @@ class HuberRegressor(LinearModel, RegressorMixin, BaseEstimator):
         """
         # We can use check_X_y directly after consensus on
         # https://github.com/scikit-learn/scikit-learn/pull/5312 is reached.
-        X = check_array(X, copy=self.copy)
+        X = check_array(X, copy=False)
         y = column_or_1d(y, warn=True)
-        check_consistent_length(X, y)
+        if sample_weight is not None:
+            sample_weight = np.array(sample_weight)
+            check_consistent_length(X, y, sample_weight)
+        else:
+            check_consistent_length(X, y)
 
         if self.epsilon < 1.0:
             raise ValueError(
@@ -215,11 +253,12 @@ class HuberRegressor(LinearModel, RegressorMixin, BaseEstimator):
         try:
             self.coef_, f, self.dict_ = optimize.fmin_l_bfgs_b(
                 _huber_loss_and_gradient, self.coef_, approx_grad=True,
-                args=(X, y, self.epsilon, self.alpha), maxiter=self.n_iter, pgtol=1e-3)
+                args=(X, y, self.epsilon, self.alpha, sample_weight),
+                maxiter=self.n_iter, pgtol=1e-3)
         except TypeError:
             self.coef_, f, self.dict_ = optimize.fmin_l_bfgs_b(
                 _huber_loss_and_gradient, self.coef_,
-                args=(X, y, self.epsilon, self.alpha))
+                args=(X, y, self.epsilon, self.alpha, sample_weight))
 
         self.scale_ = self.coef_[-1]
         if self.fit_intercept:
