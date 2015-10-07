@@ -11,6 +11,10 @@ influenced by the outliers since the model fits the linear loss
 for these. As the parameter epsilon is increased for the huber regressor, the
 decision function approches that of the ridge.
 """
+
+# Authors: Manoj Kumar mks542@nyu.edu
+# License: BSD 3 clause
+
 print(__doc__)
 
 import numpy as np
@@ -39,7 +43,7 @@ colors = ['r-', 'b-', 'y-', 'm-']
 x = np.linspace(X.min(), X.max())
 epsilon_values = [1.35, 1.5, 1.75, 3.0]
 for color_ind, epsilon in enumerate(epsilon_values):
-    huber = HuberRegressor(fit_intercept=True, alpha=0.0, n_iter=100, copy=True, epsilon=epsilon)
+    huber = HuberRegressor(fit_intercept=True, alpha=0.0, n_iter=100, epsilon=epsilon)
     huber.fit(X, y)
     coef_ = huber.coef_ * x + huber.intercept_
     plt.plot(x, coef_, colors[color_ind], label="huber loss, %s" % epsilon)

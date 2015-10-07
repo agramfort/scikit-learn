@@ -33,6 +33,9 @@ def _huber_loss_and_gradient(w, X, y, epsilon, alpha, sample_weight=None):
     alpha: float
         Regularization parameter.
 
+    sample_weight, optional
+        Weight assigned to each sample.
+
     Returns
     -------
     loss: float
