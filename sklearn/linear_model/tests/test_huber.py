@@ -14,7 +14,7 @@ from sklearn.linear_model.huber import _huber_loss_and_gradient
 X, y = make_regression(n_samples=50, n_features=20, random_state=0)
 rng = np.random.RandomState(0)
 
-# Replace 10% of the sample with outliers.
+# Replace 10% of the sample with noise.
 random_samples = rng.randint(0, 50, 5)
 X_mean = np.mean(X, axis=0)
 X[random_samples, :] = rng.normal(0, 1, (5, 20))
@@ -39,6 +39,7 @@ def test_huber_gradient():
         # Check for both fit_intercept and otherwise.
         for n_features in [X.shape[1] + 1, X.shape[1] + 2]:
             w = rng.randn(n_features)
+            w[-1] = np.abs(w[-1])
             grad_same = optimize.check_grad(
                 loss_func, grad_func, w, X, y, 0.01, 0.1)
             assert_almost_equal(grad_same, 1e-6, 4)
@@ -70,18 +71,33 @@ def test_huber_sample_weights():
 
 def return_number_outliers(X, y, coef, intercept, scale, epsilon):
     """Return the number of outliers."""
-    outliers = np.abs(np.dot(X, coef) + intercept - y) > epsilon * exp(scale)
+    outliers = np.abs(np.dot(X, coef) + intercept - y) > epsilon * scale
     return np.sum(outliers)
 
 
 def test_huber_scaling_invariant():
     """Test that outliers filtering is scaling independent."""
-    huber = HuberRegressor(fit_intercept=False, alpha=0.0, n_iter=100, epsilon=2.0)
+    huber = HuberRegressor(fit_intercept=False, alpha=0.0, n_iter=100, epsilon=1.35)
     huber.fit(X, y)
-    n_outliers = return_number_outliers(
+    n_outliers1 = return_number_outliers(
         X, y, huber.coef_, huber.intercept_, huber.scale_, huber.epsilon)
 
     huber.fit(X, 2*y)
-    n_outliers = return_number_outliers(
+    n_outliers2 = return_number_outliers(
         X, 2*y, huber.coef_, huber.intercept_, huber.scale_, huber.epsilon)
-    print(n_outliers)
+
+    huber.fit(2*X, 2*y)
+    n_outliers3 = return_number_outliers(
+        2*X, 2*y, huber.coef_, huber.intercept_, huber.scale_, huber.epsilon)
+
+    random_features = rng.randint(0, 20, (5,))
+    noise = rng.normal(0, 1, 5)
+    X_new = np.copy(X)
+    X_new[:, random_features] /= noise
+    huber.fit(X_new, y)
+    n_outliers4 = return_number_outliers(
+        X_new, y, huber.coef_, huber.intercept_, huber.scale_, huber.epsilon)
+
+    assert_equal(n_outliers1, n_outliers2)
+    assert_equal(n_outliers3, n_outliers4)
+    assert_equal(n_outliers1, n_outliers4)

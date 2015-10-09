@@ -55,39 +55,38 @@ def _huber_loss_and_gradient(w, X, y, epsilon, alpha, sample_weight=None):
     if sample_weight is not None:
         n_samples = np.sum(sample_weight)
 
-    # Calculate the values where |y - X'w -c / exp(sigma)| > epsilon
+    # Calculate the values where |y - X'w -c / sigma| > epsilon
     # The values above this threshold are outliers.
     linear_loss = y - np.dot(X, w)
     if fit_intercept:
         linear_loss -= intercept
     abs_linear_loss = np.abs(linear_loss)
-    outliers_true = abs_linear_loss * exp(-sigma) > epsilon
+    outliers_true = (abs_linear_loss / sigma) > epsilon
 
     # Calculate the linear loss due to the outliers.
-    # This is equal to (2 * M * |y - X'w / exp(sigma)| - M**2)*exp(sigma)
+    # This is equal to (2 * M * |y - X'w -c / sigma| - M**2)*sigma
     outliers = abs_linear_loss[outliers_true]
     if sample_weight is None:
         n_outliers = np.count_nonzero(outliers_true)
         outlier_loss = (
             2 * epsilon * np.sum(outliers) -
-            exp(sigma) * n_outliers * epsilon**2)
+            sigma * n_outliers * epsilon**2)
     else:
         outliers_sw = sample_weight[outliers_true]
         n_outliers = np.sum(outliers_sw)
         outlier_loss = (
             2 * epsilon * np.sum(outliers_sw * outliers) -
-            exp(sigma) * n_outliers * epsilon**2)
-
+            sigma * n_outliers * epsilon**2)
 
     # Calculate the quadratic loss due to the non-outliers.-
-    # This is equal to |(y - X'w)**2 / exp(2*sigma)|*exp(sigma)
+    # This is equal to |(y - X'w - c)**2 / sigma**2|*sigma
     non_outliers = linear_loss[~outliers_true]
     if sample_weight is None:
-        squared_loss = exp(-sigma) * np.dot(non_outliers, non_outliers)
+        squared_loss = np.dot(non_outliers, non_outliers) / sigma
     else:
         weighted_non_outliers = sample_weight[~outliers_true] * non_outliers
         weighted_loss = np.dot(weighted_non_outliers, non_outliers)
-        squared_loss = exp(-sigma) * weighted_loss
+        squared_loss = weighted_loss / sigma
 
     if fit_intercept:
         grad = np.zeros(n_features + 2)
@@ -97,10 +96,10 @@ def _huber_loss_and_gradient(w, X, y, epsilon, alpha, sample_weight=None):
     # Gradient due to the squared loss.
     if sample_weight is None:
         grad[:n_features] = (
-            2 * exp(-sigma) * np.dot(non_outliers, -X[~outliers_true, :]))
+            2 * np.dot(non_outliers, -X[~outliers_true, :]) / sigma)
     else:
         grad[:n_features] = (
-            2 * exp(-sigma) * np.dot(weighted_non_outliers, -X[~outliers_true, :])
+            2 * np.dot(weighted_non_outliers, -X[~outliers_true, :] / sigma)
         )
 
     # Gradient due to the linear loss.
@@ -121,22 +120,22 @@ def _huber_loss_and_gradient(w, X, y, epsilon, alpha, sample_weight=None):
     grad[:n_features] += alpha * 2 * w
 
     # Gradient due to sigma.
-    grad[-1] = n_samples * exp(sigma)
-    grad[-1] -= n_outliers * epsilon**2 * exp(sigma)
-    grad[-1] -= squared_loss
+    grad[-1] = n_samples
+    grad[-1] -= n_outliers * epsilon**2
+    grad[-1] -= squared_loss / sigma
 
     # Gradient due to the intercept.
     if fit_intercept:
         if sample_weight is None:
-            grad[-2] = -2 * exp(-sigma) * np.sum(non_outliers)
+            grad[-2] = -2 * np.sum(non_outliers) / sigma
             grad[-2] -= 2 * epsilon * np.sum(outliers_true_pos)
             grad[-2] += 2 * epsilon * np.sum(outliers_true_neg)
         else:
-            grad[-2] = -2 * exp(-sigma) * np.sum(weighted_non_outliers)
+            grad[-2] = -2 * np.sum(weighted_non_outliers) / sigma
             grad[-2] -= 2 * epsilon * np.sum(sample_weight[outliers_true_pos])
             grad[-2] += 2 * epsilon * np.sum(sample_weight[outliers_true_neg])
 
-    return n_samples * exp(sigma) + squared_loss + outlier_loss + alpha * np.dot(w, w), grad
+    return n_samples * sigma + squared_loss + outlier_loss + alpha * np.dot(w, w), grad
 
 
 class HuberRegressor(LinearModel, RegressorMixin, BaseEstimator):
@@ -253,15 +252,19 @@ class HuberRegressor(LinearModel, RegressorMixin, BaseEstimator):
             else:
                 self.coef_ = np.zeros(X.shape[1] + 1)
 
+        bounds = np.tile([-np.inf, np.inf], (self.coef_.shape[0], 1))
+        bounds[-1][0] = 1.0
+
         try:
             self.coef_, f, self.dict_ = optimize.fmin_l_bfgs_b(
                 _huber_loss_and_gradient, self.coef_, approx_grad=True,
                 args=(X, y, self.epsilon, self.alpha, sample_weight),
-                maxiter=self.n_iter, pgtol=1e-3)
+                maxiter=self.n_iter, pgtol=1e-3, bounds=bounds)
         except TypeError:
             self.coef_, f, self.dict_ = optimize.fmin_l_bfgs_b(
                 _huber_loss_and_gradient, self.coef_,
-                args=(X, y, self.epsilon, self.alpha, sample_weight))
+                args=(X, y, self.epsilon, self.alpha, sample_weight),
+                bounds=bounds)
 
         self.scale_ = self.coef_[-1]
         if self.fit_intercept:
