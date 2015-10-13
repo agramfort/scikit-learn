@@ -3,11 +3,34 @@ from math import exp
 import numpy as np
 
 from scipy import optimize
+from scipy.sparse import issparse
 
 from sklearn.base import BaseEstimator, RegressorMixin
 from sklearn.linear_model.base import center_data, LinearModel
 from sklearn.preprocessing import StandardScaler
-from sklearn.utils import check_X_y, check_array, check_consistent_length, column_or_1d
+from sklearn.utils import (
+    check_X_y, check_array, check_consistent_length, column_or_1d, safe_mask)
+from sklearn.utils.extmath import safe_sparse_dot
+
+def _axis0_safe_mask(X, mask, len_mask):
+    """
+    This mask is safer than safe_mask since it returns an
+    empty array, when a sparse matrix is sliced with a boolean mask
+    with all False, instead of raising an unhelpful error in older
+    versions of SciPy.
+
+    See: https://github.com/scipy/scipy/issues/5361
+
+    Also note that we can avoid doing the dot product by checking if
+    the len_mask is not zero in _huber_loss_and_gradient but this
+    is not going to be the bottleneck, since the number of outliers
+    and non_outliers are typically non-zero and it makes the code
+    tougher to follow.
+    """
+    if len_mask != 0:
+        return X[safe_mask(X, mask), :]
+    return np.array([])
+
 
 def _huber_loss_and_gradient(w, X, y, epsilon, alpha, sample_weight=None):
     """
@@ -45,6 +68,7 @@ def _huber_loss_and_gradient(w, X, y, epsilon, alpha, sample_weight=None):
         Returns the derivative of the huber loss with respect to each
         coefficient, intercept and the scale as a vector.
     """
+    X_sparse = issparse(X)
     n_samples, n_features = X.shape
     fit_intercept = n_features + 2 == w.shape[0]
     if fit_intercept:
@@ -57,22 +81,25 @@ def _huber_loss_and_gradient(w, X, y, epsilon, alpha, sample_weight=None):
 
     # Calculate the values where |y - X'w -c / sigma| > epsilon
     # The values above this threshold are outliers.
-    linear_loss = y - np.dot(X, w)
+    linear_loss = y - safe_sparse_dot(X, w)
     if fit_intercept:
         linear_loss -= intercept
     abs_linear_loss = np.abs(linear_loss)
-    outliers_true = (abs_linear_loss / sigma) > epsilon
+    outliers_mask = (abs_linear_loss / sigma) > epsilon
 
     # Calculate the linear loss due to the outliers.
     # This is equal to (2 * M * |y - X'w -c / sigma| - M**2)*sigma
-    outliers = abs_linear_loss[outliers_true]
+    outliers = abs_linear_loss[outliers_mask]
+    num_outliers = np.count_nonzero(outliers)
+    num_non_outliers = n_samples - num_outliers
+
     if sample_weight is None:
-        n_outliers = np.count_nonzero(outliers_true)
+        n_outliers = np.count_nonzero(outliers_mask)
         outlier_loss = (
             2 * epsilon * np.sum(outliers) -
             sigma * n_outliers * epsilon**2)
     else:
-        outliers_sw = sample_weight[outliers_true]
+        outliers_sw = sample_weight[outliers_mask]
         n_outliers = np.sum(outliers_sw)
         outlier_loss = (
             2 * epsilon * np.sum(outliers_sw * outliers) -
@@ -80,12 +107,13 @@ def _huber_loss_and_gradient(w, X, y, epsilon, alpha, sample_weight=None):
 
     # Calculate the quadratic loss due to the non-outliers.-
     # This is equal to |(y - X'w - c)**2 / sigma**2|*sigma
-    non_outliers = linear_loss[~outliers_true]
+    non_outliers = linear_loss[~outliers_mask]
+
     if sample_weight is None:
-        squared_loss = np.dot(non_outliers, non_outliers) / sigma
+        squared_loss = np.dot(non_outliers.T, non_outliers) / sigma
     else:
-        weighted_non_outliers = sample_weight[~outliers_true] * non_outliers
-        weighted_loss = np.dot(weighted_non_outliers, non_outliers)
+        weighted_non_outliers = sample_weight[~outliers_mask] * non_outliers
+        weighted_loss = np.dot(weighted_non_outliers.T, non_outliers)
         squared_loss = weighted_loss / sigma
 
     if fit_intercept:
@@ -93,28 +121,58 @@ def _huber_loss_and_gradient(w, X, y, epsilon, alpha, sample_weight=None):
     else:
         grad = np.zeros(n_features + 1)
 
+
     # Gradient due to the squared loss.
+    X_non_outliers = -_axis0_safe_mask(X, ~outliers_mask, num_non_outliers)
     if sample_weight is None:
         grad[:n_features] = (
-            2 * np.dot(non_outliers, -X[~outliers_true, :]) / sigma)
+            2 * safe_sparse_dot(non_outliers, X_non_outliers) / sigma)
     else:
         grad[:n_features] = (
-            2 * np.dot(weighted_non_outliers, -X[~outliers_true, :] / sigma)
-        )
+            2 * safe_sparse_dot(weighted_non_outliers, X_non_outliers) / sigma)
 
     # Gradient due to the linear loss.
-    outliers_true_pos = np.logical_and(linear_loss >= 0, outliers_true)
-    outliers_true_neg = np.logical_and(linear_loss < 0, outliers_true)
+    outliers_pos = np.logical_and(linear_loss >= 0, outliers_mask)
+    outliers_neg = np.logical_and(linear_loss < 0, outliers_mask)
+    num_outliers_pos = np.count_nonzero(outliers_pos)
+    num_outliers_neg = num_outliers - num_outliers_pos
+
     if sample_weight is None:
-        grad[:n_features] -= 2 * epsilon * X[outliers_true_pos, :].sum(axis=0)
-        grad[:n_features] += 2 * epsilon * X[outliers_true_neg, :].sum(axis=0)
+
+        X_outliers_pos = _axis0_safe_mask(X, outliers_pos, num_outliers_pos).sum(axis=0)
+        X_outliers_neg = _axis0_safe_mask(X, outliers_neg, num_outliers_neg).sum(axis=0)
+
+        if X_sparse:
+            X_outliers_pos = np.squeeze(np.array(X_outliers_pos))
+            X_outliers_neg = np.squeeze(np.array(X_outliers_neg))
+
+        grad[:n_features] -= 2 * epsilon * X_outliers_pos
+        grad[:n_features] += 2 * epsilon * X_outliers_neg
+
     else:
-        sample_weight_outliers_true_pos = sample_weight[outliers_true_pos].reshape(-1, 1)
-        sample_weight_outliers_true_neg = sample_weight[outliers_true_neg].reshape(-1, 1)
-        grad[:n_features] -= 2 * epsilon * (
-            (sample_weight_outliers_true_pos * X[outliers_true_pos, :]).sum(axis=0))
-        grad[:n_features] += 2 * epsilon * (
-            (sample_weight_outliers_true_neg * X[outliers_true_neg, :]).sum(axis=0))
+        sw_outliers_pos = sample_weight[outliers_pos].reshape(-1, 1)
+        sw_outliers_neg = sample_weight[outliers_neg].reshape(-1, 1)
+
+        if X_sparse:
+
+            if num_outliers_pos != 0:
+                weighted_sum = (
+                    sparse.dia_matrix(sw_outliers_pos) *
+                    X[outliers_pos, :]).sum(axis=0)
+                weighted_sum = np.squeeze(np.array(weighted_sum))
+                grad[:n_features] -= 2 * epsilon * weighted_sum
+
+            if num_outliers_neg != 0:
+                weighted_sum = (
+                    sparse.dia_matrix(sw_outliers_neg) *
+                    X[outliers_neg, :]).sum(axis=0)
+                weighted_sum = np.squeeze(np.array(weighted_sum))
+                grad[:n_features] += 2 * epsilon * weighted_sum
+        else:
+            grad[:n_features] -= 2 * epsilon * (
+                (sw_outliers_pos * X[outliers_pos, :]).sum(axis=0))
+            grad[:n_features] += 2 * epsilon * (
+                (sw_outliers_neg * X[outliers_neg, :]).sum(axis=0))
 
     # Gradient due to the penalty.
     grad[:n_features] += alpha * 2 * w
@@ -128,12 +186,12 @@ def _huber_loss_and_gradient(w, X, y, epsilon, alpha, sample_weight=None):
     if fit_intercept:
         if sample_weight is None:
             grad[-2] = -2 * np.sum(non_outliers) / sigma
-            grad[-2] -= 2 * epsilon * np.sum(outliers_true_pos)
-            grad[-2] += 2 * epsilon * np.sum(outliers_true_neg)
+            grad[-2] -= 2 * epsilon * np.sum(outliers_pos)
+            grad[-2] += 2 * epsilon * np.sum(outliers_neg)
         else:
             grad[-2] = -2 * np.sum(weighted_non_outliers) / sigma
-            grad[-2] -= 2 * epsilon * np.sum(sample_weight[outliers_true_pos])
-            grad[-2] += 2 * epsilon * np.sum(sample_weight[outliers_true_neg])
+            grad[-2] -= 2 * epsilon * np.sum(sw_outliers_pos)
+            grad[-2] += 2 * epsilon * np.sum(sw_outliers_neg)
 
     return n_samples * sigma + squared_loss + outlier_loss + alpha * np.dot(w, w), grad
 
@@ -234,8 +292,10 @@ class HuberRegressor(LinearModel, RegressorMixin, BaseEstimator):
         """
         # We can use check_X_y directly after consensus on
         # https://github.com/scikit-learn/scikit-learn/pull/5312 is reached.
-        X = check_array(X, copy=False)
+        X = check_array(
+            X, copy=False, accept_sparse=['csr'], dtype=np.float64)
         y = column_or_1d(y, warn=True)
+        y = np.asarray(y, dtype=np.float64)
         if sample_weight is not None:
             sample_weight = np.array(sample_weight)
             check_consistent_length(X, y, sample_weight)
