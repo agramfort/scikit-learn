@@ -2,8 +2,7 @@ from math import exp
 
 import numpy as np
 
-from scipy import optimize
-from scipy.sparse import issparse
+from scipy import optimize, sparse
 
 from sklearn.base import BaseEstimator, RegressorMixin
 from sklearn.linear_model.base import center_data, LinearModel
@@ -12,7 +11,13 @@ from sklearn.utils import (
     check_X_y, check_array, check_consistent_length, column_or_1d, safe_mask)
 from sklearn.utils.extmath import safe_sparse_dot
 
-def _axis0_safe_mask(X, mask, len_mask):
+
+def _dia_matrix(X):
+    if len(X) == 0:
+        return np.array([])
+    return sparse.dia_matrix(X)
+
+def _axis0_safe_slice(X, mask, len_mask):
     """
     This mask is safer than safe_mask since it returns an
     empty array, when a sparse matrix is sliced with a boolean mask
@@ -68,7 +73,7 @@ def _huber_loss_and_gradient(w, X, y, epsilon, alpha, sample_weight=None):
         Returns the derivative of the huber loss with respect to each
         coefficient, intercept and the scale as a vector.
     """
-    X_sparse = issparse(X)
+    X_sparse = sparse.issparse(X)
     n_samples, n_features = X.shape
     fit_intercept = n_features + 2 == w.shape[0]
     if fit_intercept:
@@ -91,7 +96,7 @@ def _huber_loss_and_gradient(w, X, y, epsilon, alpha, sample_weight=None):
     # This is equal to (2 * M * |y - X'w -c / sigma| - M**2)*sigma
     outliers = abs_linear_loss[outliers_mask]
     num_outliers = np.count_nonzero(outliers)
-    num_non_outliers = n_samples - num_outliers
+    num_non_outliers = X.shape[0] - num_outliers
 
     if sample_weight is None:
         n_outliers = np.count_nonzero(outliers_mask)
@@ -123,7 +128,7 @@ def _huber_loss_and_gradient(w, X, y, epsilon, alpha, sample_weight=None):
 
 
     # Gradient due to the squared loss.
-    X_non_outliers = -_axis0_safe_mask(X, ~outliers_mask, num_non_outliers)
+    X_non_outliers = -_axis0_safe_slice(X, ~outliers_mask, num_non_outliers)
     if sample_weight is None:
         grad[:n_features] = (
             2 * safe_sparse_dot(non_outliers, X_non_outliers) / sigma)
@@ -136,43 +141,39 @@ def _huber_loss_and_gradient(w, X, y, epsilon, alpha, sample_weight=None):
     outliers_neg = np.logical_and(linear_loss < 0, outliers_mask)
     num_outliers_pos = np.count_nonzero(outliers_pos)
     num_outliers_neg = num_outliers - num_outliers_pos
+    X_outliers_pos = _axis0_safe_slice(X, outliers_pos, num_outliers_pos)
+    X_outliers_neg = _axis0_safe_slice(X, outliers_neg, num_outliers_neg)
 
     if sample_weight is None:
 
-        X_outliers_pos = _axis0_safe_mask(X, outliers_pos, num_outliers_pos).sum(axis=0)
-        X_outliers_neg = _axis0_safe_mask(X, outliers_neg, num_outliers_neg).sum(axis=0)
+        # Summing along any axis of a matrix returns a matrix object.
+        outliers_pos_sum = np.squeeze(np.array(X_outliers_pos.sum(axis=0)))
+        outliers_neg_sum = np.squeeze(np.array(X_outliers_neg.sum(axis=0)))
 
-        if X_sparse:
-            X_outliers_pos = np.squeeze(np.array(X_outliers_pos))
-            X_outliers_neg = np.squeeze(np.array(X_outliers_neg))
-
-        grad[:n_features] -= 2 * epsilon * X_outliers_pos
-        grad[:n_features] += 2 * epsilon * X_outliers_neg
+        grad[:n_features] -= 2 * epsilon * outliers_pos_sum
+        grad[:n_features] += 2 * epsilon * outliers_neg_sum
 
     else:
-        sw_outliers_pos = sample_weight[outliers_pos].reshape(-1, 1)
-        sw_outliers_neg = sample_weight[outliers_neg].reshape(-1, 1)
+        sw_outliers_pos = sample_weight[outliers_pos]
+        sw_outliers_neg = sample_weight[outliers_neg]
 
         if X_sparse:
+            weighted_sum = (
+                _dia_matrix(sw_outliers_pos) *
+                X_outliers_pos).sum(axis=0)
+            weighted_sum = np.squeeze(np.array(weighted_sum))
+            grad[:n_features] -= 2 * epsilon * weighted_sum
 
-            if num_outliers_pos != 0:
-                weighted_sum = (
-                    sparse.dia_matrix(sw_outliers_pos) *
-                    X[outliers_pos, :]).sum(axis=0)
-                weighted_sum = np.squeeze(np.array(weighted_sum))
-                grad[:n_features] -= 2 * epsilon * weighted_sum
-
-            if num_outliers_neg != 0:
-                weighted_sum = (
-                    sparse.dia_matrix(sw_outliers_neg) *
-                    X[outliers_neg, :]).sum(axis=0)
-                weighted_sum = np.squeeze(np.array(weighted_sum))
-                grad[:n_features] += 2 * epsilon * weighted_sum
+            weighted_sum = (
+                _dia_matrix(sw_outliers_neg) *
+                X_outliers_neg).sum(axis=0)
+            weighted_sum = np.squeeze(np.array(weighted_sum))
+            grad[:n_features] += 2 * epsilon * weighted_sum
         else:
             grad[:n_features] -= 2 * epsilon * (
-                (sw_outliers_pos * X[outliers_pos, :]).sum(axis=0))
+                np.dot(sw_outliers_pos, X_outliers_pos))
             grad[:n_features] += 2 * epsilon * (
-                (sw_outliers_neg * X[outliers_neg, :]).sum(axis=0))
+                np.dot(sw_outliers_neg, X_outliers_neg))
 
     # Gradient due to the penalty.
     grad[:n_features] += alpha * 2 * w
@@ -266,12 +267,13 @@ class HuberRegressor(LinearModel, RegressorMixin, BaseEstimator):
     """
 
     def __init__(self, epsilon=1.35, n_iter=100, alpha=0.0001,
-                 warm_start=False, fit_intercept=True):
+                 warm_start=False, fit_intercept=True, pgtol=1e-05):
         self.epsilon = epsilon
         self.n_iter = n_iter
         self.alpha = alpha
         self.warm_start = warm_start
         self.fit_intercept = fit_intercept
+        self.pgtol = pgtol
 
     def fit(self, X, y, sample_weight=None):
         """Fit the model according to the given training data.
@@ -311,6 +313,9 @@ class HuberRegressor(LinearModel, RegressorMixin, BaseEstimator):
                 self.coef_ = np.zeros(X.shape[1] + 2)
             else:
                 self.coef_ = np.zeros(X.shape[1] + 1)
+        elif self.warm_start:
+            self.coef_ = np.concatenate(
+                (self.coef_, [self.intercept_, self.scale_]))
 
         bounds = np.tile([-np.inf, np.inf], (self.coef_.shape[0], 1))
         bounds[-1][0] = 1.0
@@ -319,13 +324,14 @@ class HuberRegressor(LinearModel, RegressorMixin, BaseEstimator):
             self.coef_, f, self.dict_ = optimize.fmin_l_bfgs_b(
                 _huber_loss_and_gradient, self.coef_, approx_grad=True,
                 args=(X, y, self.epsilon, self.alpha, sample_weight),
-                maxiter=self.n_iter, pgtol=1e-3, bounds=bounds)
+                maxiter=self.n_iter, pgtol=self.pgtol, bounds=bounds)
         except TypeError:
             self.coef_, f, self.dict_ = optimize.fmin_l_bfgs_b(
                 _huber_loss_and_gradient, self.coef_,
                 args=(X, y, self.epsilon, self.alpha, sample_weight),
                 bounds=bounds)
 
+        self.n_iter_ = self.dict_.get('nit', None)
         self.scale_ = self.coef_[-1]
         if self.fit_intercept:
             self.intercept_ = self.coef_[-2]

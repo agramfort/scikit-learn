@@ -1,25 +1,33 @@
 from math import exp
 
 import numpy as np
-from scipy import optimize
+from scipy import optimize, sparse
 
 from sklearn.utils.testing import assert_equal
 from sklearn.utils.testing import assert_almost_equal
 from sklearn.utils.testing import assert_array_almost_equal
+from sklearn.utils.testing import assert_greater
 
 from sklearn.datasets import make_regression
-from sklearn.linear_model import HuberRegressor, Ridge
+from sklearn.linear_model import HuberRegressor, Ridge, SGDRegressor
 from sklearn.linear_model.huber import _huber_loss_and_gradient
 
-X, y = make_regression(n_samples=50, n_features=20, random_state=0)
 rng = np.random.RandomState(0)
 
-# Replace 10% of the sample with noise.
-random_samples = rng.randint(0, 50, 5)
-X_mean = np.mean(X, axis=0)
-X[random_samples, :] = rng.normal(0, 1, (5, 20))
+def make_regression_with_outliers(n_samples=50, n_features=20):
+    X, y = make_regression(
+        n_samples=n_samples, n_features=n_features,
+        random_state=0, noise=10.0)
+
+    # Replace 10% of the sample with noise.
+    num_noise = int(0.1 * n_samples)
+    random_samples = rng.randint(0, n_samples, num_noise)
+    X[random_samples, :] = rng.normal(0, 1, (num_noise, X.shape[1]))
+    return X, y
+
 
 def test_huber_equals_ridge_for_high_epsilon():
+    X, y = make_regression_with_outliers()
     ridge = Ridge(fit_intercept=True, random_state=0, alpha=0.0)
     ridge.fit(X, y)
     huber = HuberRegressor(fit_intercept=True, epsilon=10000.0, alpha=0.0)
@@ -30,6 +38,7 @@ def test_huber_equals_ridge_for_high_epsilon():
 def test_huber_gradient():
     """Test that the gradient calculated by _huber_loss_and_gradient is correct"""
 
+    X, y = make_regression_with_outliers()
     loss_func = lambda x, *args: _huber_loss_and_gradient(x, *args)[0]
     grad_func = lambda x, *args: _huber_loss_and_gradient(x, *args)[1]
 
@@ -48,7 +57,7 @@ def test_huber_gradient():
 def test_huber_sample_weights():
     """Test sample_weights implementation in HuberRegressor"""
 
-    X, y = make_regression(n_samples=50, n_features=20, random_state=0)
+    X, y = make_regression_with_outliers()
     huber = HuberRegressor(fit_intercept=True, alpha=0.1)
     huber.fit(X, y)
     huber_coef = huber.coef_
@@ -58,7 +67,8 @@ def test_huber_sample_weights():
     assert_array_almost_equal(huber.coef_, huber_coef)
     assert_array_almost_equal(huber.intercept_, huber_intercept)
 
-    X, y = make_regression(n_samples=5, n_features=20, random_state=1)
+    X, y = make_regression_with_outliers(n_samples=5, n_features=20)
+    X[X < 0.3] = 0.0
     X_new = np.vstack((X, np.vstack((X[1], X[1], X[3]))))
     y_new = np.concatenate((y, [y[1]], [y[1]], [y[3]]))
     huber.fit(X_new, y_new)
@@ -67,6 +77,13 @@ def test_huber_sample_weights():
     huber.fit(X, y, sample_weight=[1, 3, 1, 2, 1])
     assert_array_almost_equal(huber.coef_, huber_coef)
     assert_array_almost_equal(huber.intercept_, huber_intercept)
+
+    # Test sparse implementation with sparse weights.
+    # Checking sparse=non_sparse should be covered in the common tests.
+    X_csr = sparse.csr_matrix(X)
+    huber_sparse = HuberRegressor(fit_intercept=True, alpha=0.1)
+    huber_sparse.fit(X_csr, y, sample_weight=[1, 3, 1, 2, 1])
+    assert_array_almost_equal(huber_sparse.coef_, huber_coef)
 
 
 def return_number_outliers(X, y, coef, intercept, scale, epsilon):
@@ -77,6 +94,7 @@ def return_number_outliers(X, y, coef, intercept, scale, epsilon):
 
 def test_huber_scaling_invariant():
     """Test that outliers filtering is scaling independent."""
+    X, y = make_regression_with_outliers()
     huber = HuberRegressor(fit_intercept=False, alpha=0.0, n_iter=100, epsilon=1.35)
     huber.fit(X, y)
     n_outliers1 = return_number_outliers(
@@ -101,3 +119,56 @@ def test_huber_scaling_invariant():
     assert_equal(n_outliers1, n_outliers2)
     assert_equal(n_outliers3, n_outliers4)
     assert_equal(n_outliers1, n_outliers4)
+
+
+def test_huber_and_sgd_same_results():
+    """Test they should converge to same coefficients for same parameters"""
+
+    X, y = make_regression_with_outliers(n_samples=5, n_features=1)
+
+    # Fit once to find out the scale parameter. Scale down X and y by scale
+    # so that the scale parameter is optimized to 1.0
+    huber = HuberRegressor(fit_intercept=False, alpha=0.0, n_iter=100, epsilon=1.35)
+    huber.fit(X, y)
+    X_scale = X / huber.scale_
+    y_scale = y / huber.scale_
+    huber.fit(X_scale, y_scale)
+    assert_almost_equal(huber.scale_, 1.0, 3)
+
+    sgdreg = SGDRegressor(
+        alpha=0.0, loss="huber", shuffle=True, random_state=0, n_iter=1000000,
+        fit_intercept=False, epsilon=1.35)
+    sgdreg.fit(X_scale, y_scale)
+    assert_array_almost_equal(huber.coef_, sgdreg.coef_, 2)
+
+
+def test_huber_warm_start():
+    X, y = make_regression_with_outliers()
+    huber_warm = HuberRegressor(
+        fit_intercept=True, alpha=1.0, n_iter=5, warm_start=True)
+    huber_warm.fit(X, y)
+    huber_warm.fit(X, y)
+
+    huber_cold = HuberRegressor(fit_intercept=True, alpha=1.0, n_iter=5)
+    huber_cold.fit(X, y)
+    assert_almost_equal(huber_warm.coef_, huber_cold.coef_, 3)
+
+
+def test_huber_better_r2_score():
+    """Test that huber returns a better r2 score than non-outliers"""
+    X, y = make_regression_with_outliers()
+    huber = HuberRegressor(fit_intercept=True, alpha=0.01, n_iter=100)
+    huber.fit(X, y)
+    linear_loss = np.dot(X, huber.coef_) + huber.intercept_ - y
+    mask = np.abs(linear_loss) < huber.epsilon * huber.scale_
+    huber_score = huber.score(X[mask], y[mask])
+    huber_outlier_score = huber.score(X[~mask], y[~mask])
+
+    ridge = Ridge(fit_intercept=True, alpha=0.01)
+    ridge.fit(X, y)
+    ridge_score = ridge.score(X[mask], y[mask])
+    ridge_outlier_score = ridge.score(X[~mask], y[~mask])
+    assert_greater(huber_score, ridge_score)
+
+    # The huber model should also fit poorly on the outliers.
+    assert_greater(ridge_outlier_score, huber_outlier_score)
