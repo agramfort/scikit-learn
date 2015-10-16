@@ -1019,6 +1019,62 @@ considering only a random subset of all possible combinations.
 
     .. [#f2] T. Kärkkäinen and S. Äyrämö: `On Computation of Spatial Median for Robust Data Mining. <http://users.jyu.fi/~samiayr/pdf/ayramo_eurogen05.pdf>`_
 
+.. _huber_regression:
+
+Huber Regression
+----------------
+
+The :class:`HuberRegressor` is an extension of :class:`Ridge` except that
+the loss above a certain threshold is linear. It differs from :class:`TheilSenRegressor`
+and :class:`RANSACRegressor` because it does not ignore the effect of the outliers
+but gives a lesser weight to them.
+
+.. figure:: ../auto_examples/linear_model/images/plot_huber_vs_ridge_001.png
+   :target: ../auto_examples/linear_model/plot_huber_vs_ridge.html
+   :align: center
+   :scale: 50%
+
+The loss function that :class:`HuberRegressor` minimizes is given by
+
+.. math::
+
+   \underset{w}{min\,} {n_samples*\sigma + H_m(\frac{X w - y}{\sigma})*\sigma + \alpha {||w||_2}^2}
+
+where
+
+.. math:: H(z)
+
+.. math:: z^2 if |z| < \epsilon
+
+.. math:: 2*M*|z| - M^2 if |z| >= \epsilon
+
+It is advised to set the parameter `epsilon` to 1.35 to acheive 95% statistical efficiency.
+
+Notes
+-----
+The :class:`HuberRegressor` differs from using :class:`SGDRegressor` with loss set to `huber`
+in the following ways.
+
+- :class:`HuberRegressor` is scaling invariant. Once `epsilon` is set, scaling X and y
+  down or up by different values would produce the same robustness to outliers as before.
+  as compared to :class:`SGDRegessor` where `epsilon` has to be set again when X and y are
+  scaled.
+
+- :class:`HuberRegressor` should be more efficient to use on data with small number of
+  samples while :class:`SGDRegressor` needs a number of passes on the training data to
+  produce the same robustness.
+
+.. topic:: Examples:
+
+  * :ref:`example_linear_model_plot_huber_vs_ridge.py`
+
+.. topic:: References:
+
+    .. [#f1] Peter J. Huber, Elvezio M. Ronchetti: `Robust Statistics. <http://sanghv.com/download/Soft/Machine%20Learning,%20Artificial%20Intelligence,%20Mathematics%20eBooks/math/statistics/robust%20statistics%20%282nd,%202009%29.pdf>`_
+
+    .. [#f2] Art B. Owen: `A robust hybrid of lasso and ridge regression. <http://statweb.stanford.edu/~owen/reports/hhu.pdf>_`
+
+
 .. _polynomial_regression:
 
 Polynomial regression: extending linear models with basis functions

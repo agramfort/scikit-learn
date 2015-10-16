@@ -24,12 +24,19 @@ What we can see that:
 - TheilSen is good for small outliers, both in direction X and y, but has
   a break point above which it performs worst than OLS.
 
+- Note that the HuberRegressor does not completely ignore the outliers
+  unlike RANSAC and TheilSen since it contributes a linear loss
+  in general it is likely to give a worse test error as compared to
+  these.
+
 """
 
 from matplotlib import pyplot as plt
 import numpy as np
 
-from sklearn import linear_model, metrics
+from sklearn.linear_model import (
+  LinearRegression, TheilSenRegressor, RANSACRegressor, HuberRegressor)
+from sklearn.metrics import mean_squared_error
 from sklearn.preprocessing import PolynomialFeatures
 from sklearn.pipeline import make_pipeline
 
@@ -56,9 +63,10 @@ y_errors_large[::3] = 10
 X_errors_large = X.copy()
 X_errors_large[::3] = 10
 
-estimators = [('OLS', linear_model.LinearRegression()),
-              ('Theil-Sen', linear_model.TheilSenRegressor(random_state=42)),
-              ('RANSAC', linear_model.RANSACRegressor(random_state=42)), ]
+estimators = [('OLS', LinearRegression()),
+              ('Theil-Sen', TheilSenRegressor(random_state=42)),
+              ('RANSAC', RANSACRegressor(random_state=42)),
+              ('HuberRegressor', HuberRegressor())]
 
 x_plot = np.linspace(X.min(), X.max())
 
@@ -74,7 +82,7 @@ for title, this_X, this_y in [
     for name, estimator in estimators:
         model = make_pipeline(PolynomialFeatures(3), estimator)
         model.fit(this_X, this_y)
-        mse = metrics.mean_squared_error(model.predict(X_test), y_test)
+        mse = mean_squared_error(model.predict(X_test), y_test)
         y_plot = model.predict(x_plot[:, np.newaxis])
         plt.plot(x_plot, y_plot,
                  label='%s: error = %.3f' % (name, mse))

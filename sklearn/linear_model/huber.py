@@ -244,6 +244,10 @@ class HuberRegressor(LinearModel, RegressorMixin, BaseEstimator):
         Whether or not to fit the intercept. This can be set to False for
         if the data is already centered around the origin.
 
+    pgtol: float, default 1e-5
+        The iteration will stop when max{|proj g_i | i = 1, ..., n} <= pgtol
+        where pg_i is the i-th component of the projected gradient.
+
     Attributes
     ----------
     coef_: array, shape (n_features,)
@@ -255,15 +259,15 @@ class HuberRegressor(LinearModel, RegressorMixin, BaseEstimator):
     scale_ : float
         The value by which |y - X'w -c| is scaled down by.
 
+    n_iter_: int
+        Number of iterations that fmin_l_bfgs_b has run for, if available.
+
     References
     ----------
-    Art B. Owen (2006), A robust hybrid of lasso and ridge regression.
-    http://statweb.stanford.edu/~owen/reports/hhu.pdf
-
-    Notes
-    -----
-    Though, the paper says to use sigma, we use exp(sigma). This removes the
-    constraint that sigma should be positive.
+    .. [1] Peter J. Huber, Elvezio M. Ronchetti, Robust Statistics
+           Concomitant scale estimates, pg 172
+    .. [2] Art B. Owen (2006), A robust hybrid of lasso and ridge regression.
+           http://statweb.stanford.edu/~owen/reports/hhu.pdf
     """
 
     def __init__(self, epsilon=1.35, n_iter=100, alpha=0.0001,
