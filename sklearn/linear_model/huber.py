@@ -1,21 +1,24 @@
-from math import exp
+# Authors: Manoj Kumar mks542@nyu.edu
+# License: BSD 3 clause
 
 import numpy as np
 
 from scipy import optimize, sparse
 
-from sklearn.base import BaseEstimator, RegressorMixin
-from sklearn.linear_model.base import center_data, LinearModel
-from sklearn.preprocessing import StandardScaler
-from sklearn.utils import (
-    check_X_y, check_array, check_consistent_length, column_or_1d, safe_mask)
-from sklearn.utils.extmath import safe_sparse_dot
+from ..base import BaseEstimator, RegressorMixin
+from .base import LinearModel
+from ..utils import check_array
+from ..utils import check_consistent_length
+from ..utils import column_or_1d
+from ..utils import safe_mask
+from ..utils.extmath import safe_sparse_dot
 
 
 def _dia_matrix(X):
     if len(X) == 0:
         return np.array([])
     return sparse.dia_matrix(X)
+
 
 def _axis0_safe_slice(X, mask, len_mask):
     """
@@ -38,8 +41,7 @@ def _axis0_safe_slice(X, mask, len_mask):
 
 
 def _huber_loss_and_gradient(w, X, y, epsilon, alpha, sample_weight=None):
-    """
-    Returns the huber loss and the gradient.
+    """Returns the Huber loss and the gradient.
 
     Parameters
     ----------
@@ -56,12 +58,12 @@ def _huber_loss_and_gradient(w, X, y, epsilon, alpha, sample_weight=None):
         Target vector.
 
     epsilon: float
-        Measures the robustness of the huber estimator.
+        Measures the robustness of the Huber estimator.
 
     alpha: float
         Regularization parameter.
 
-    sample_weight, optional
+    sample_weight: ndarray, shape (n_samples,), optional
         Weight assigned to each sample.
 
     Returns
@@ -70,16 +72,16 @@ def _huber_loss_and_gradient(w, X, y, epsilon, alpha, sample_weight=None):
         Huber loss.
 
     gradient: ndarray, shape (n_features + 1,) or (n_features + 2,)
-        Returns the derivative of the huber loss with respect to each
+        Returns the derivative of the Huber loss with respect to each
         coefficient, intercept and the scale as a vector.
     """
-    X_sparse = sparse.issparse(X)
+    X_is_sparse = sparse.issparse(X)
     n_samples, n_features = X.shape
-    fit_intercept = n_features + 2 == w.shape[0]
+    fit_intercept = (n_features + 2 == w.shape[0])
     if fit_intercept:
         intercept = w[-2]
     sigma = w[-1]
-    w = w[:X.shape[1]]
+    w = w[:n_features]
 
     if sample_weight is not None:
         n_samples = np.sum(sample_weight)
@@ -96,19 +98,17 @@ def _huber_loss_and_gradient(w, X, y, epsilon, alpha, sample_weight=None):
     # This is equal to (2 * M * |y - X'w -c / sigma| - M**2)*sigma
     outliers = abs_linear_loss[outliers_mask]
     num_outliers = np.count_nonzero(outliers)
-    num_non_outliers = X.shape[0] - num_outliers
+    n_non_outliers = n_samples - num_outliers
 
     if sample_weight is None:
         n_outliers = np.count_nonzero(outliers_mask)
-        outlier_loss = (
-            2 * epsilon * np.sum(outliers) -
-            sigma * n_outliers * epsilon**2)
+        outlier_loss = (2. * epsilon * np.sum(outliers) -
+                        sigma * n_outliers * epsilon ** 2)
     else:
         outliers_sw = sample_weight[outliers_mask]
         n_outliers = np.sum(outliers_sw)
-        outlier_loss = (
-            2 * epsilon * np.sum(outliers_sw * outliers) -
-            sigma * n_outliers * epsilon**2)
+        outlier_loss = (2. * epsilon * np.sum(outliers_sw * outliers) -
+                        sigma * n_outliers * epsilon ** 2)
 
     # Calculate the quadratic loss due to the non-outliers.-
     # This is equal to |(y - X'w - c)**2 / sigma**2|*sigma
@@ -126,15 +126,14 @@ def _huber_loss_and_gradient(w, X, y, epsilon, alpha, sample_weight=None):
     else:
         grad = np.zeros(n_features + 1)
 
-
     # Gradient due to the squared loss.
-    X_non_outliers = -_axis0_safe_slice(X, ~outliers_mask, num_non_outliers)
+    X_non_outliers = -_axis0_safe_slice(X, ~outliers_mask, n_non_outliers)
     if sample_weight is None:
         grad[:n_features] = (
-            2 * safe_sparse_dot(non_outliers, X_non_outliers) / sigma)
+            2. * safe_sparse_dot(non_outliers, X_non_outliers) / sigma)
     else:
         grad[:n_features] = (
-            2 * safe_sparse_dot(weighted_non_outliers, X_non_outliers) / sigma)
+            2. * safe_sparse_dot(weighted_non_outliers, X_non_outliers) / sigma)
 
     # Gradient due to the linear loss.
     outliers_pos = np.logical_and(linear_loss >= 0, outliers_mask)
@@ -145,65 +144,62 @@ def _huber_loss_and_gradient(w, X, y, epsilon, alpha, sample_weight=None):
     X_outliers_neg = _axis0_safe_slice(X, outliers_neg, num_outliers_neg)
 
     if sample_weight is None:
-
         # Summing along any axis of a matrix returns a matrix object.
         outliers_pos_sum = np.squeeze(np.array(X_outliers_pos.sum(axis=0)))
         outliers_neg_sum = np.squeeze(np.array(X_outliers_neg.sum(axis=0)))
 
-        grad[:n_features] -= 2 * epsilon * outliers_pos_sum
-        grad[:n_features] += 2 * epsilon * outliers_neg_sum
-
+        grad[:n_features] -= 2. * epsilon * outliers_pos_sum
+        grad[:n_features] += 2. * epsilon * outliers_neg_sum
     else:
         sw_outliers_pos = sample_weight[outliers_pos]
         sw_outliers_neg = sample_weight[outliers_neg]
 
-        if X_sparse:
-            weighted_sum = (
-                _dia_matrix(sw_outliers_pos) *
-                X_outliers_pos).sum(axis=0)
+        if X_is_sparse:
+            weighted_sum = (_dia_matrix(sw_outliers_pos) *
+                            X_outliers_pos).sum(axis=0)
             weighted_sum = np.squeeze(np.array(weighted_sum))
-            grad[:n_features] -= 2 * epsilon * weighted_sum
+            grad[:n_features] -= 2. * epsilon * weighted_sum
 
-            weighted_sum = (
-                _dia_matrix(sw_outliers_neg) *
-                X_outliers_neg).sum(axis=0)
+            weighted_sum = (_dia_matrix(sw_outliers_neg) *
+                            X_outliers_neg).sum(axis=0)
             weighted_sum = np.squeeze(np.array(weighted_sum))
-            grad[:n_features] += 2 * epsilon * weighted_sum
+            grad[:n_features] += 2. * epsilon * weighted_sum
         else:
-            grad[:n_features] -= 2 * epsilon * (
+            grad[:n_features] -= 2. * epsilon * (
                 np.dot(sw_outliers_pos, X_outliers_pos))
-            grad[:n_features] += 2 * epsilon * (
+            grad[:n_features] += 2. * epsilon * (
                 np.dot(sw_outliers_neg, X_outliers_neg))
 
     # Gradient due to the penalty.
-    grad[:n_features] += alpha * 2 * w
+    grad[:n_features] += alpha * 2. * w
 
     # Gradient due to sigma.
     grad[-1] = n_samples
-    grad[-1] -= n_outliers * epsilon**2
+    grad[-1] -= n_outliers * epsilon ** 2
     grad[-1] -= squared_loss / sigma
 
     # Gradient due to the intercept.
     if fit_intercept:
         if sample_weight is None:
-            grad[-2] = -2 * np.sum(non_outliers) / sigma
-            grad[-2] -= 2 * epsilon * np.sum(outliers_pos)
-            grad[-2] += 2 * epsilon * np.sum(outliers_neg)
+            grad[-2] = -2. * np.sum(non_outliers) / sigma
+            grad[-2] -= 2. * epsilon * np.sum(outliers_pos)
+            grad[-2] += 2. * epsilon * np.sum(outliers_neg)
         else:
-            grad[-2] = -2 * np.sum(weighted_non_outliers) / sigma
-            grad[-2] -= 2 * epsilon * np.sum(sw_outliers_pos)
-            grad[-2] += 2 * epsilon * np.sum(sw_outliers_neg)
+            grad[-2] = -2. * np.sum(weighted_non_outliers) / sigma
+            grad[-2] -= 2. * epsilon * np.sum(sw_outliers_pos)
+            grad[-2] += 2. * epsilon * np.sum(sw_outliers_neg)
 
-    return n_samples * sigma + squared_loss + outlier_loss + alpha * np.dot(w, w), grad
+    loss = n_samples * sigma + squared_loss + outlier_loss
+    loss += alpha * np.dot(w, w)
+    return loss, grad
 
 
 class HuberRegressor(LinearModel, RegressorMixin, BaseEstimator):
-    """
-    Linear regression model that is robust to outliers.
+    """Linear regression model that is robust to outliers.
 
     The Huber Regressor optimizes the squared loss for the samples where
-    |y - X'w / exp(sigma)| > epsilon and the linear loss for the samples
-    where |y - X'w / exp(sigma)| < epsilon, where w and sigma are parameters
+    |(y - X'w) / exp(sigma)| < epsilon and the linear loss for the samples
+    where |(y - X'w) / exp(sigma)| > epsilon, where w and sigma are parameters
     to be optimized. The parameter sigma makes sure that if y is scaled up
     or down by a certain factor, one does not need to rescale M to acheive
     the same robustness.
@@ -212,8 +208,8 @@ class HuberRegressor(LinearModel, RegressorMixin, BaseEstimator):
     outliers while not completely ignoring their effect.
 
     More specifically the loss function optimized is.
-        X.shape[0] * exp(sigma) + (
-            \sum_{i=1}^{i=X.shape[0]}H(y_{i} - X_{i}*w - c / exp(sigma))
+        n_samples * exp(sigma) + (
+            \sum_{i=1}^{i=n_samples} H((y_{i} - X_{i}*w - c) / exp(sigma))
             * exp(sigma))
     where
 
@@ -241,7 +237,7 @@ class HuberRegressor(LinearModel, RegressorMixin, BaseEstimator):
         for every call to fit.
 
     fit_intercept: bool, default True
-        Whether or not to fit the intercept. This can be set to False for
+        Whether or not to fit the intercept. This can be set to False
         if the data is already centered around the origin.
 
     pgtol: float, default 1e-5
@@ -251,13 +247,13 @@ class HuberRegressor(LinearModel, RegressorMixin, BaseEstimator):
     Attributes
     ----------
     coef_: array, shape (n_features,)
-        Features got by optimizing the huber loss.
+        Features got by optimizing the Huber loss.
 
     intercept_: float
         Bias factor.
 
     scale_ : float
-        The value by which |y - X'w -c| is scaled down by.
+        The value by which |y - X'w - c| is scaled down by.
 
     n_iter_: int
         Number of iterations that fmin_l_bfgs_b has run for, if available.
@@ -284,7 +280,7 @@ class HuberRegressor(LinearModel, RegressorMixin, BaseEstimator):
 
         Parameters
         ----------
-        X : array-like, shape (n_samples,)
+        X : array-like, shape (n_samples, n_features)
             Training vector, where n_samples in the number of samples and
             n_features is the number of features.
 
@@ -296,7 +292,7 @@ class HuberRegressor(LinearModel, RegressorMixin, BaseEstimator):
         self : object
             Returns self.
         """
-        # We can use check_X_y directly after consensus on
+        # XXX : We can use check_X_y directly after consensus on
         # https://github.com/scikit-learn/scikit-learn/pull/5312 is reached.
         X = check_array(
             X, copy=False, accept_sparse=['csr'], dtype=np.float64)

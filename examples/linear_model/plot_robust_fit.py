@@ -22,10 +22,10 @@ What we can see that:
 - RANSAC is good for strong outliers in the y direction
 
 - TheilSen is good for small outliers, both in direction X and y, but has
-  a break point above which it performs worst than OLS.
+  a break point above which it performs worse than OLS.
 
 - Note that the HuberRegressor does not completely ignore the outliers
-  unlike RANSAC and TheilSen since it contributes a linear loss
+  unlike RANSAC and TheilSen. Since it contributes a linear loss
   in general it is likely to give a worse test error as compared to
   these.
 
@@ -35,7 +35,7 @@ from matplotlib import pyplot as plt
 import numpy as np
 
 from sklearn.linear_model import (
-  LinearRegression, TheilSenRegressor, RANSACRegressor, HuberRegressor)
+    LinearRegression, TheilSenRegressor, RANSACRegressor, HuberRegressor)
 from sklearn.metrics import mean_squared_error
 from sklearn.preprocessing import PolynomialFeatures
 from sklearn.pipeline import make_pipeline
