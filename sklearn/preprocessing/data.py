@@ -12,9 +12,11 @@ import warnings
 
 import numpy as np
 from scipy import sparse
+from scipy import stats
 
 from ..base import BaseEstimator, TransformerMixin
 from ..externals import six
+from ..externals.joblib import Parallel, delayed
 from ..utils import check_array
 from ..utils import deprecated
 from ..utils.extmath import row_norms
@@ -49,6 +51,7 @@ __all__ = [
     'robust_scale',
     'maxabs_scale',
     'minmax_scale',
+    'boxcox_transform'
 ]
 
 DEPRECATION_MSG_1D = (
@@ -1917,3 +1920,38 @@ class OneHotEncoder(BaseEstimator, TransformerMixin):
         """
         return _transform_selected(X, self._transform,
                                    self.categorical_features, copy=True)
+
+
+def _boxcox(X):
+    X, _ = stats.boxcox(X)
+    return X
+
+
+def boxcox_transform(X, copy=True):
+    """BoxCox transform to the input data
+
+    Apply boxcox transform on individual features with lambda
+    that maximizes the log-likelihood function for each feature
+
+    Parameters
+    ----------
+    X : array-like, shape [n_samples, n_features]
+        The data to be transformed. Should contain only positive data.
+
+    copy : boolean, optional, default is True
+        set to False to perform inplace transformation and avoid a
+        copy (if the input is already a numpy array or a scipy.sparse
+        CSR matrix and if axis is 1).
+
+    References
+    ----------
+    G.E.P. Box and D.R. Cox, "An Analysis of Transformations", Journal of the
+    Royal Statistical Society B, 26, 211-252 (1964).
+    """
+    X = check_array(X, ensure_2d=True, dtype=FLOAT_DTYPES)
+    if any(np.any(X<=0, axis=0)):
+        raise ValueError("BoxCox transform can only be applied on positive data")
+    n_samples, n_features = X.shape
+    outputs = Parallel()(delayed(_boxcox)(X[:, i]) for i in range(n_features))
+    output = np.asarray(outputs).T
+    return output

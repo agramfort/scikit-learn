@@ -20,7 +20,7 @@ from .data import robust_scale
 from .data import maxabs_scale
 from .data import minmax_scale
 from .data import OneHotEncoder
-
+from .data import boxcox_transform
 from .data import PolynomialFeatures
 
 from .label import label_binarize
@@ -54,4 +54,5 @@ __all__ = [
     'maxabs_scale',
     'minmax_scale',
     'label_binarize',
+    'boxcox_transform',
 ]

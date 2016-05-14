@@ -8,6 +8,7 @@
 import warnings
 import numpy as np
 import numpy.linalg as la
+import scipy.stats as stats
 from scipy import sparse
 from distutils.version import LooseVersion
 from sklearn.externals.six import u
@@ -50,6 +51,7 @@ from sklearn.preprocessing.data import RobustScaler
 from sklearn.preprocessing.data import robust_scale
 from sklearn.preprocessing.data import add_dummy_feature
 from sklearn.preprocessing.data import PolynomialFeatures
+from sklearn.preprocessing.data import boxcox_transform
 from sklearn.exceptions import DataConversionWarning
 
 from sklearn import datasets
@@ -1588,3 +1590,13 @@ def test_fit_cold_start():
         # with a different shape, this may break the scaler unless the internal
         # state is reset
         scaler.fit_transform(X_2d)
+
+
+def test_boxcox_transform():
+    X = np.array([[4, 2, 1], [1, 6, 3], [1, 5, 2], [3, 1, 3]])
+    Xtr = boxcox_transform(X)
+    n_samples, n_features = X.shape
+    for feature in range(n_features):
+        Xtr_feature, _ = stats.boxcox(X[:, feature])
+        assert_array_equal(Xtr_feature, Xtr[:, feature])
+
