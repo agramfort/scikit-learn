@@ -51,7 +51,8 @@ from sklearn.preprocessing.data import RobustScaler
 from sklearn.preprocessing.data import robust_scale
 from sklearn.preprocessing.data import add_dummy_feature
 from sklearn.preprocessing.data import PolynomialFeatures
-from sklearn.preprocessing.data import boxcox_transform
+from sklearn.preprocessing.data import boxcox
+from sklearn.preprocessing.data import BoxCoxTransformer
 from sklearn.exceptions import DataConversionWarning
 
 from sklearn import datasets
@@ -1594,9 +1595,24 @@ def test_fit_cold_start():
 
 def test_boxcox_transform():
     X = np.array([[4, 2, 1], [1, 6, 3], [1, 5, 2], [3, 1, 3]])
-    Xtr = boxcox_transform(X)
-    n_samples, n_features = X.shape
+    Xtr = boxcox(X)
+    n_features = X.shape[1]
     for feature in range(n_features):
-        Xtr_feature, _ = stats.boxcox(X[:, feature])
-        assert_array_equal(Xtr_feature, Xtr[:, feature])
+        assert_array_equal(stats.boxcox(X[:, feature])[0], Xtr[:, feature])
+        assert_array_equal(boxcox(X[:, feature].reshape(-1, 1)).ravel(), Xtr[:, feature])
 
+def test_boxcox_transformer():
+    X = np.array([[4, 2, 1], [1, 6, 3], [1, 5, 2], [3, 1, 3]])
+    BCTr = BoxCoxTransformer(feature_indices=None)
+    X_tr = BCTr.transform(X)
+    n_features = X.shape[1]
+    for feature in range(n_features):
+        assert_array_equal(BCTr.transform(X[:, feature].reshape(-1,1)).ravel(), X_tr[:, feature])
+    feature_indices = np.array([0, 2])
+    X_tr = BCTr.transform(X, feature_indices=feature_indices)
+    for feature in feature_indices:
+        assert_array_equal(BCTr.transform(X[:, feature].reshape(-1,1)).ravel(), X_tr[:, feature])
+    feature_indices = np.array([False, True, True])
+    X_tr = BCTr.transform(X, feature_indices=feature_indices)
+    for feature in np.where(feature_indices)[0]:
+        assert_array_equal(BCTr.transform(X[:, feature].reshape(-1,1)).ravel(), X_tr[:, feature])

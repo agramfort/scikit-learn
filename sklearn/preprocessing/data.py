@@ -1648,7 +1648,7 @@ def add_dummy_feature(X, value=1.0):
         return np.hstack((np.ones((n_samples, 1)) * value, X))
 
 
-def _transform_selected(X, transform, selected="all", copy=True):
+def _transform_selected(X, transform, selected="all", copy=True, order=False):
     """Apply a transform function to portion of selected features
 
     Parameters
@@ -1664,6 +1664,10 @@ def _transform_selected(X, transform, selected="all", copy=True):
 
     selected: "all" or array of indices or mask
         Specify which features to apply the transform to.
+
+    order: boolean, default False
+        Specify whether the initial order of features has
+        to be maintained in the output
 
     Returns
     -------
@@ -1694,10 +1698,15 @@ def _transform_selected(X, transform, selected="all", copy=True):
         X_sel = transform(X[:, ind[sel]])
         X_not_sel = X[:, ind[not_sel]]
 
-        if sparse.issparse(X_sel) or sparse.issparse(X_not_sel):
-            return sparse.hstack((X_sel, X_not_sel))
+        if order:
+        # As of now, X is expected to be dense array
+            X[:, ind[sel]] = X_sel
+            return X
         else:
-            return np.hstack((X_sel, X_not_sel))
+            if sparse.issparse(X_sel) or sparse.issparse(X_not_sel):
+                return sparse.hstack((X_sel, X_not_sel))
+            else:
+                return np.hstack((X_sel, X_not_sel))
 
 
 class OneHotEncoder(BaseEstimator, TransformerMixin):
@@ -1927,7 +1936,7 @@ def _boxcox(X):
     return X
 
 
-def boxcox_transform(X, features=None):
+def boxcox(X, copy=True):
     """BoxCox transform to the input data
 
     Apply boxcox transform on individual features with lambda
@@ -1948,19 +1957,16 @@ def boxcox_transform(X, features=None):
     G.E.P. Box and D.R. Cox, "An Analysis of Transformations", Journal of the
     Royal Statistical Society B, 26, 211-252 (1964).
     """
-    X = check_array(X, ensure_2d=True, dtype=FLOAT_DTYPES)
+    X = check_array(X, ensure_2d=True, dtype=FLOAT_DTYPES, copy=copy)
     if any(np.any(X <= 0, axis=0)):
         raise ValueError("BoxCox transform can only be applied on positive data")
-    if features is None:
-        t_features = np.arange(X.shape[1])
-    else:
-        t_features = features
-    outputs = Parallel()(delayed(_boxcox)(X[:, i]) for i in t_features)
+    n_features = X.shape[1]
+    outputs = Parallel()(delayed(_boxcox)(X[:, i]) for i in range(n_features))
     output = np.asarray(outputs).T
     return output
 
 
-class BoxCox(BaseEstimator, TransformerMixin):
+class BoxCoxTransformer(BaseEstimator, TransformerMixin):
     """BoxCox features individually.
 
     Each feature (i.e. each column of the data matrix) will be applied
@@ -1968,9 +1974,12 @@ class BoxCox(BaseEstimator, TransformerMixin):
 
     Parameters
     ----------
-    features : array-like, shape [n_features]
-               The features to be transformed by boxcox
+    feature_indices: "all" or array of indices or mask, default None
+        Specify what features are treated are to be transformed.
 
+        - 'all' (default): All features are to be transformed.
+        - array of indices: Array of feature indices to be transformed..
+        - mask: Array of length n_features and with dtype=bool.
     Notes
     -----
     The Box-Cox transform is given by::
@@ -1988,8 +1997,9 @@ class BoxCox(BaseEstimator, TransformerMixin):
     boxcox_transform: Equivalent function without the object oriented API.
     """
 
-    def __init__(self, features=None):
-        self.features = features
+    def __init__(self, feature_indices=None, copy=False):
+        self.feature_indices = feature_indices
+        self.copy = copy
 
     def fit(self, X, y=None):
         """Do nothing and return the estimator unchanged
@@ -2000,15 +2010,17 @@ class BoxCox(BaseEstimator, TransformerMixin):
         X = check_array(X, ensure_2d=True, dtype=FLOAT_DTYPES)
         return self
 
-    def transform(self, X, y=None):
+    def transform(self, X, y=None, feature_indices=None, copy=None):
         """Scale each non zero row of X to unit norm
 
         Parameters
         ----------
         X : array-like, shape [n_samples, n_features]
             The data to apply boxcox transform, to each of the
-            features given in the ``features`` attribute.
+            features given in the ``feature_indices`` attribute.
         """
-
+        copy = copy if copy is not None else self.copy
+        selected = feature_indices if feature_indices is not None else "all"
         X = check_array(X, ensure_2d=True, dtype=FLOAT_DTYPES)
-        return boxcox_transform(X, features=self.features)
+        X_tr = _transform_selected(X, boxcox, selected, copy, order=True)
+        return X_tr
