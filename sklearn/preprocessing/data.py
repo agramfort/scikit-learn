@@ -1927,7 +1927,7 @@ def _boxcox(X):
     return X
 
 
-def boxcox_transform(X, copy=True):
+def boxcox_transform(X, features=None):
     """BoxCox transform to the input data
 
     Apply boxcox transform on individual features with lambda
@@ -1949,9 +1949,66 @@ def boxcox_transform(X, copy=True):
     Royal Statistical Society B, 26, 211-252 (1964).
     """
     X = check_array(X, ensure_2d=True, dtype=FLOAT_DTYPES)
-    if any(np.any(X<=0, axis=0)):
+    if any(np.any(X <= 0, axis=0)):
         raise ValueError("BoxCox transform can only be applied on positive data")
-    n_samples, n_features = X.shape
-    outputs = Parallel()(delayed(_boxcox)(X[:, i]) for i in range(n_features))
+    if features is None:
+        t_features = np.arange(X.shape[1])
+    else:
+        t_features = features
+    outputs = Parallel()(delayed(_boxcox)(X[:, i]) for i in t_features)
     output = np.asarray(outputs).T
     return output
+
+
+class BoxCox(BaseEstimator, TransformerMixin):
+    """BoxCox features individually.
+
+    Each feature (i.e. each column of the data matrix) will be applied
+    boxcox transform with lambda evaluated to maximise the log-likelihood
+
+    Parameters
+    ----------
+    features : array-like, shape [n_features]
+               The features to be transformed by boxcox
+
+    Notes
+    -----
+    The Box-Cox transform is given by::
+
+        y = (x**lmbda - 1) / lmbda,  for lmbda > 0
+            log(x),                  for lmbda = 0
+
+    `boxcox` requires the input data to be positive.
+
+    This estimator is stateless (besides constructor parameters), the
+    fit method does nothing but is useful when used in a pipeline.
+
+    See also
+    --------
+    boxcox_transform: Equivalent function without the object oriented API.
+    """
+
+    def __init__(self, features=None):
+        self.features = features
+
+    def fit(self, X, y=None):
+        """Do nothing and return the estimator unchanged
+
+        This method is just there to implement the usual API and hence
+        work in pipelines.
+        """
+        X = check_array(X, ensure_2d=True, dtype=FLOAT_DTYPES)
+        return self
+
+    def transform(self, X, y=None):
+        """Scale each non zero row of X to unit norm
+
+        Parameters
+        ----------
+        X : array-like, shape [n_samples, n_features]
+            The data to apply boxcox transform, to each of the
+            features given in the ``features`` attribute.
+        """
+
+        X = check_array(X, ensure_2d=True, dtype=FLOAT_DTYPES)
+        return boxcox_transform(X, features=self.features)
