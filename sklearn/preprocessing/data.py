@@ -1931,8 +1931,13 @@ class OneHotEncoder(BaseEstimator, TransformerMixin):
                                    self.categorical_features, copy=True)
 
 
-def _boxcox(X):
-    X, _ = stats.boxcox(X)
+def _boxcox(X, lambdas, return_maxlog=False):
+    if lambdas is None:
+        X, maxlogs = stats.boxcox(X, lambdas)
+    else:
+        X = stats.boxcox(X, lambdas)
+    if return_maxlog:
+        return X, maxlogs
     return X
 
 
@@ -1961,8 +1966,8 @@ def boxcox(X, copy=True):
     if any(np.any(X <= 0, axis=0)):
         raise ValueError("BoxCox transform can only be applied on positive data")
     n_features = X.shape[1]
-    outputs = Parallel()(delayed(_boxcox)(X[:, i]) for i in range(n_features))
-    output = np.asarray(outputs).T
+    outputs = Parallel(n_jobs=-1)(delayed(_boxcox)(X[:, i], None) for i in range(n_features))
+    output = np.concatenate([o[..., np.newaxis] for o in outputs], axis=1)
     return output
 
 
@@ -2004,10 +2009,19 @@ class BoxCoxTransformer(BaseEstimator, TransformerMixin):
     def fit(self, X, y=None):
         """Do nothing and return the estimator unchanged
 
-        This method is just there to implement the usual API and hence
-        work in pipelines.
+        Parameters
+        ----------
+        X : array-like, shape [n_samples, n_features]
+            The data to fit by apply boxcox transform,
+            to each of the features and learn the lambda.
         """
         X = check_array(X, ensure_2d=True, dtype=FLOAT_DTYPES)
+        if any(np.any(X <= 0, axis=0)):
+            raise ValueError("BoxCox transform can only be applied on positive data")
+        n_features = X.shape[1]
+        outputs = Parallel(n_jobs=-1)(delayed(_boxcox)(X[:, i], None, True) for i in range(n_features))
+        output = np.concatenate([o[0][..., np.newaxis] for o in outputs], axis=1)
+        self.lambdas = np.array([o[1] for o in outputs])
         return self
 
     def transform(self, X, y=None, feature_indices=None, copy=None):
@@ -2021,6 +2035,23 @@ class BoxCoxTransformer(BaseEstimator, TransformerMixin):
         """
         copy = copy if copy is not None else self.copy
         selected = feature_indices if feature_indices is not None else "all"
+        n_features = X.shape[1]
+        if any(np.any(X <= 0, axis=0)):
+            raise ValueError("BoxCox transform can only be applied on positive data")
+        if isinstance(feature_indices, np.ndarray):
+            if feature_indices.dtype == np.bool:
+                self.indices = np.where(feature_indices)[0]
+            else:
+                self.indices = feature_indices            
+        else:
+                self.indices = np.arange(n_features)
         X = check_array(X, ensure_2d=True, dtype=FLOAT_DTYPES)
-        X_tr = _transform_selected(X, boxcox, selected, copy, order=True)
+        X_tr = _transform_selected(X, self._transform, selected, copy, order=True)
         return X_tr
+
+    def _transform(self, X):
+        maxlogs = [self.lambdas[i] for i in self.indices]
+        n_features = X.shape[1]
+        outputs = Parallel(n_jobs=-1)(delayed(_boxcox)(X[:, i], maxlogs[i]) for i in range(n_features))
+        output = np.concatenate([o[..., np.newaxis] for o in outputs], axis=1)
+        return output

@@ -1594,25 +1594,24 @@ def test_fit_cold_start():
 
 
 def test_boxcox_transform():
+    # Apply boxcox transform and check is if it applying individually on each feature 
     X = np.array([[4, 2, 1], [1, 6, 3], [1, 5, 2], [3, 1, 3]])
     Xtr = boxcox(X)
     n_features = X.shape[1]
     for feature in range(n_features):
         assert_array_equal(stats.boxcox(X[:, feature])[0], Xtr[:, feature])
-        assert_array_equal(boxcox(X[:, feature].reshape(-1, 1)).ravel(), Xtr[:, feature])
+        assert_array_equal(boxcox(X[:, feature].reshape(-1, 1)).ravel(),
+                           Xtr[:, feature])
 
 def test_boxcox_transformer():
-    X = np.array([[4, 2, 1], [1, 6, 3], [1, 5, 2], [3, 1, 3]])
+    X1 = np.array([[4, 2, 1], [1, 6, 3], [1, 5, 2], [3, 1, 3]])
+    X2 = np.array([[7, 4, 3], [2, 5, 4], [1, 6, 3], [4, 2, 1]])
     BCTr = BoxCoxTransformer(feature_indices=None)
-    X_tr = BCTr.transform(X)
-    n_features = X.shape[1]
-    for feature in range(n_features):
-        assert_array_equal(BCTr.transform(X[:, feature].reshape(-1,1)).ravel(), X_tr[:, feature])
+    BCTr.fit(X1)
+    X_tr = BCTr.transform(X2)
+    n_features = X2.shape[1]
     feature_indices = np.array([0, 2])
-    X_tr = BCTr.transform(X, feature_indices=feature_indices)
-    for feature in feature_indices:
-        assert_array_equal(BCTr.transform(X[:, feature].reshape(-1,1)).ravel(), X_tr[:, feature])
-    feature_indices = np.array([False, True, True])
-    X_tr = BCTr.transform(X, feature_indices=feature_indices)
-    for feature in np.where(feature_indices)[0]:
-        assert_array_equal(BCTr.transform(X[:, feature].reshape(-1,1)).ravel(), X_tr[:, feature])
+    X_tr1 = BCTr.transform(X2, feature_indices=feature_indices)
+    feature_indices = np.array([True, False, True])
+    X_tr2 = BCTr.transform(X2, feature_indices=feature_indices)
+    assert_array_equal(X_tr1, X_tr2)
