@@ -1966,7 +1966,8 @@ def boxcox(X, copy=True):
     if any(np.any(X <= 0, axis=0)):
         raise ValueError("BoxCox transform can only be applied on positive data")
     n_features = X.shape[1]
-    outputs = Parallel(n_jobs=-1)(delayed(_boxcox)(X[:, i], None) for i in range(n_features))
+    outputs = Parallel(n_jobs=-1)(delayed(_boxcox)(X[:, i], None)
+                                  for i in range(n_features))
     output = np.concatenate([o[..., np.newaxis] for o in outputs], axis=1)
     return output
 
@@ -1985,6 +1986,10 @@ class BoxCoxTransformer(BaseEstimator, TransformerMixin):
         - 'all' (default): All features are to be transformed.
         - array of indices: Array of feature indices to be transformed..
         - mask: Array of length n_features and with dtype=bool.
+
+    copy : boolean, optional, default None
+        Set to False to perform inplace computation.
+
     Notes
     -----
     The Box-Cox transform is given by::
@@ -2002,8 +2007,8 @@ class BoxCoxTransformer(BaseEstimator, TransformerMixin):
     boxcox_transform: Equivalent function without the object oriented API.
     """
 
-    def __init__(self, feature_indices=None, copy=False):
-        self.feature_indices = feature_indices
+    def __init__(self, feature_indices=None, copy=None):
+        self.feature_indices_ = feature_indices
         self.copy = copy
 
     def fit(self, X, y=None):
@@ -2014,17 +2019,30 @@ class BoxCoxTransformer(BaseEstimator, TransformerMixin):
         X : array-like, shape [n_samples, n_features]
             The data to fit by apply boxcox transform,
             to each of the features and learn the lambda.
+
         """
+        self.X = X
         X = check_array(X, ensure_2d=True, dtype=FLOAT_DTYPES)
         if any(np.any(X <= 0, axis=0)):
             raise ValueError("BoxCox transform can only be applied on positive data")
         n_features = X.shape[1]
-        outputs = Parallel(n_jobs=-1)(delayed(_boxcox)(X[:, i], None, True) for i in range(n_features))
-        output = np.concatenate([o[0][..., np.newaxis] for o in outputs], axis=1)
-        self.lambdas = np.array([o[1] for o in outputs])
+        if any(np.any(X <= 0, axis=0)):
+            raise ValueError("BoxCox transform can only be applied on positive data")
+        if isinstance(self.feature_indices_, np.ndarray):
+            if self.feature_indices_.dtype == np.bool:
+                self.indices_ = np.where(self.feature_indices_)[0]
+            else:
+                self.indices_ = self.feature_indices_
+        else:
+                self.indices_ = np.arange(n_features)
+        outputs = Parallel(n_jobs=-1)(delayed(_boxcox)(X[:, i], None, True)
+                                      for i in self.indices_)
+        output = np.concatenate([o[0][..., np.newaxis] for o in outputs],
+                                axis=1)
+        self.lambdas_ = np.array([o[1] for o in outputs])
         return self
 
-    def transform(self, X, y=None, feature_indices=None, copy=None):
+    def transform(self, X, y=None):
         """Scale each non zero row of X to unit norm
 
         Parameters
@@ -2032,26 +2050,24 @@ class BoxCoxTransformer(BaseEstimator, TransformerMixin):
         X : array-like, shape [n_samples, n_features]
             The data to apply boxcox transform, to each of the
             features given in the ``feature_indices`` attribute.
+
+        copy : boolean, optional, default None
+            Set to False to perform inplace computation.
         """
-        copy = copy if copy is not None else self.copy
-        selected = feature_indices if feature_indices is not None else "all"
+        X = check_array(X, ensure_2d=True, dtype=FLOAT_DTYPES)
         n_features = X.shape[1]
+        if self.feature_indices_ is not None :
+            selected = self.feature_indices_
+        else:
+            selected ="all"
         if any(np.any(X <= 0, axis=0)):
             raise ValueError("BoxCox transform can only be applied on positive data")
-        if isinstance(feature_indices, np.ndarray):
-            if feature_indices.dtype == np.bool:
-                self.indices = np.where(feature_indices)[0]
-            else:
-                self.indices = feature_indices            
-        else:
-                self.indices = np.arange(n_features)
-        X = check_array(X, ensure_2d=True, dtype=FLOAT_DTYPES)
-        X_tr = _transform_selected(X, self._transform, selected, copy, order=True)
+        X_tr = _transform_selected(X, self._transform, selected, self.copy, True)
         return X_tr
 
     def _transform(self, X):
-        maxlogs = [self.lambdas[i] for i in self.indices]
         n_features = X.shape[1]
-        outputs = Parallel(n_jobs=-1)(delayed(_boxcox)(X[:, i], maxlogs[i]) for i in range(n_features))
+        outputs = Parallel(n_jobs=-1)(delayed(_boxcox)(X[:, i], self.lambdas_[i])
+                                      for i in range(n_features))
         output = np.concatenate([o[..., np.newaxis] for o in outputs], axis=1)
         return output
