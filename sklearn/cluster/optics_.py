@@ -68,10 +68,10 @@ def _build_optics(setofobjects, epsilon):
     # written to the 'ordering_' list is important!
     for point in setofobjects._index:
         if not setofobjects._processed[point]:
-            _expandClusterOrder(setofobjects, point, epsilon)
+            _expand_cluster_order(setofobjects, point, epsilon)
 
 
-def _expandClusterOrder(setofobjects, point, epsilon):
+def _expand_cluster_order(setofobjects, point, epsilon):
     # As above, not parallelizable. Parallelizing would allow items in
     # the 'unprocessed' list to switch to 'processed'
     if setofobjects.core_dists_[point] <= epsilon:
