@@ -50,7 +50,6 @@ class _SetOfObjects(BallTree):
         self._processed = np.zeros((self._n, 1), dtype=bool)
         self.reachability_ = np.ones(self._n) * np.inf
         self.core_dists_ = np.ones(self._n) * np.nan
-        self._index = np.array(range(self._n))
         # Start all points as noise ##
         self._cluster_id = -np.ones(self._n, dtype=int)
         self._is_core = np.zeros(self._n, dtype=bool)
@@ -66,7 +65,7 @@ def _prep_optics(self, min_samples):
 def _build_optics(setofobjects, epsilon):
     # Main OPTICS loop. Not parallelizable. The order that entries are
     # written to the 'ordering_' list is important!
-    for point in setofobjects._index:
+    for point in range(setofobjects._n):
         if not setofobjects._processed[point]:
             _expand_cluster_order(setofobjects, point, epsilon)
 
@@ -193,30 +192,57 @@ class OPTICS(BaseEstimator, ClusterMixin):
         ----------
         X : array, shape (n_samples, n_features)
             The data.
-        """
 
+        Returns
+        -------
+        self : instance of OPTICS
+            The instance.
+        """
         X = check_array(X)
 
+        n_samples = len(X)
+
         # Check for valid n_samples relative to min_samples
-        if self.min_samples > len(X):
-            print("Number of training samples must be greater than")
-            print("min_samples used for clustering")
-            return
+        if self.min_samples > n_samples:
+            raise ValueError("Number of training samples (%d) must be greater "
+                             "than min_samples (%d) used for clustering." %
+                             (n_samples, self.min_samples))
 
         self.tree_ = _SetOfObjects(X, self.metric)
         _prep_optics(self.tree_, self.min_samples)
         _build_optics(self.tree_, self.eps * 5.0)
-        self._index = self.tree_._index[:]
-        self.reachability_ = self.tree_.reachability_[:]
-        self.core_dists_ = self.tree_.core_dists_[:]
-        self._cluster_id = self.tree_._cluster_id[:]
-        self._is_core = self.tree_._is_core[:]
-        self.ordering_ = self.tree_.ordering_[:]
         self.extract_auto()
-        self.labels_ = self._cluster_id[:]
-        self.core_sample_indices_ = self._index[self._is_core[:]]
-        self.n_clusters = max(self._cluster_id)
+        self.core_sample_indices_ = np.arange(self._is_core)
+        self.n_clusters_ = max(self._cluster_id)
         return self
+
+    @property
+    def reachability_(self):
+        return self.tree_.reachability_[:]
+
+    @property
+    def core_dists_(self):
+        return self.tree_.core_dists_[:]
+
+    @property
+    def _cluster_id(self):
+        return self.tree_._cluster_id[:]
+
+    @property
+    def _is_core(self):
+        return self.tree_._is_core[:]
+
+    @property
+    def _index(self):
+        return self.tree_._index[:]
+
+    @property
+    def ordering_(self):
+        return self.tree_.ordering_[:]
+
+    @property
+    def labels_(self):
+        return self._cluster_id[:]
 
     def extract(self, epsilon_prime, clustering='auto', **kwargs):
         """Performs Automatic extraction for an arbitrary epsilon.
@@ -253,10 +279,9 @@ class OPTICS(BaseEstimator, ClusterMixin):
             _extract_DBSCAN(self, epsilon_prime)
         elif clustering == 'auto':
             self.extract_auto(**kwargs)
-        # else:
-        #    print(clustering + " is not a valid clustering method")
-        self.labels_ = self._cluster_id[:]
-        self.core_sample_indices_ = self._index[self._is_core[:] == 1]
+
+        self.core_sample_indices_ = \
+            np.arange(len(self.reachability_))[self._is_core == 1]
         self.n_clusters = max(self._cluster_id)
 
         if epsilon_prime > (self.eps * 1.05):

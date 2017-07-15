@@ -38,8 +38,7 @@ def test_optics2():
     clust = OPTICS(eps=0.3, min_samples=10)
 
     # Run the fit
-    clust2 = clust.fit(X)
-    assert_equal(clust2, None)
+    assert_raises(ValueError, clust.fit, X)
 
 
 def test_empty_extract():
