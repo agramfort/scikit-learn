@@ -295,7 +295,10 @@ def f_regression(X, y, center=True):
 
     # compute the correlation
     corr = safe_sparse_dot(y, X)
-    corr /= X_norms
+    X_norms_inv = np.zeros_like(X_norms)
+    mask = (X_norms != 0.)
+    X_norms_inv[mask] = 1. / X_norms[mask]
+    corr *= X_norms_inv
     corr /= np.linalg.norm(y)
 
     # convert to p-value
