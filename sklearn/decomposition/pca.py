@@ -431,7 +431,8 @@ class PCA(_BasePCA):
                                  % (n_components, type(n_components)))
 
         # Center data
-        self.mean_ = np.mean(X, axis=0)
+        self.mean_ = np.zeros_like(np.mean(X, axis=0))
+        # self.mean_ = np.mean(X, axis=0)
         X -= self.mean_
 
         U, S, V = linalg.svd(X, full_matrices=False)
